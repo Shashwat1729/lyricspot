@@ -231,6 +231,16 @@ Average identification time: **4.8 seconds** per query.
 
 ---
 
+
+## 🎬 Demo
+
+See the app in action with our interactive slideshow:
+
+> **[📺 Live Demo Slideshow](https://shashwat1729.github.io/continuemysong-ai/demo/)**
+
+Or just visit the [GitHub Pages site](https://shashwat1729.github.io/continuemysong-ai/) and try it yourself — no backend required!
+
+---
 ## 🤝 Contributing
 
 Contributions are welcome! Here's how:
