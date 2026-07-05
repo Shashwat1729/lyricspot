@@ -6,6 +6,17 @@
   <img src="docs/screenshots/homepage.png" alt="ContinueMySong Home" width="700">
 </p>
 
+
+
+<p align="center">
+  <a href="https://shashwat1729.github.io/continuemysong-ai/">
+    <img src="https://img.shields.io/badge/GitHub%20Pages-Live-1DB954?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Pages">
+  </a>
+  <a href="https://github.com/Shashwat1729/continuemysong-ai">
+    <img src="https://img.shields.io/badge/GitHub-Repo-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub">
+  </a>
+</p>
+
 ---
 
 Yo, ever had a song stuck in your head but only remember ONE line? Or you're humming something and Shazam's like "nahhh"? 
@@ -38,7 +49,10 @@ No cloud nonsense. No paid APIs. Just pure open-source wizardry.
 ## 📸 How It Looks
 
 | Sing into it | Type it out | BOOM results |
-|:---:|:---:|:---:|
+|:
+> 🎯 **Live demo & docs:** [shashwat1729.github.io/continuemysong-ai](https://shashwat1729.github.io/continuemysong-ai/)
+
+---:|:---:|:---:|
 | ![Home](docs/screenshots/homepage.png) | ![Lyrics](docs/screenshots/lyrics-input.png) | ![Results](docs/screenshots/results.png) |
 
 ---
@@ -54,6 +68,9 @@ No cloud nonsense. No paid APIs. Just pure open-source wizardry.
 ```bash
 chmod +x start.sh && ./start.sh
 ```
+
+> 🌐 **Want a quick overview?** Check out the [GitHub Pages site](https://shashwat1729.github.io/continuemysong-ai/)
+
 
 ### The manual way
 
