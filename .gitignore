@@ -1,0 +1,100 @@
+﻿# ===== Python =====
+__pycache__/
+*.py[cod]
+*.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+venv/
+.venv/
+env/
+env.bak/
+venv.bak/
+.python-version
+
+# ===== Uploads & Data files =====
+backend/uploads/
+*.wav
+*.webm
+*.mp3
+*.mp4
+*.ogg
+
+# ===== ML Models =====
+*.pt
+*.pth
+*.bin
+*.onnx
+models/
+
+# ===== Node =====
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+.eslintcache
+.turbo
+
+# ===== Environment =====
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+backend/.env
+frontend/.env.local
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+*.lnk
+
+# ===== Logs =====
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===== Docker =====
+.docker/
+docker-compose.override.yml
+
+# ===== Next.js =====
+.next/
+out/
+
+# ===== Testing =====
+.coverage
+coverage/
+.coverage.*
+*.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Misc =====
+*.bak
+*.orig
+.tmp
+.cache
