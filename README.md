@@ -1,228 +1,184 @@
-﻿<h1 align="center">🎵 ContinueMySong AI</h1>
+# 🎵 ContinueMySong AI
+
+**Sing a lyric. We'll find the song. Keep listening right where you left off.**
 
 <p align="center">
-  <em>Sing a lyric. We'll find the song. Continue playing from exactly where you left off.</em>
-</p>
-
-<p align="center">
-  <a href=\"#\"><img src=\"https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white\" alt=\"Python\"></a>
-  <a href=\"#\"><img src=\"https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white\" alt=\"Next.js\"></a>
-  <a href=\"#\"><img src=\"https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white\" alt=\"TypeScript\"></a>
-  <a href=\"#\"><img src=\"https://img.shields.io/badge/FastAPI-0.104-009688?logo=fastapi&logoColor=white\" alt=\"FastAPI\"></a>
-  <a href=\"LICENSE\"><img src=\"https://img.shields.io/badge/License-MIT-yellow.svg\" alt=\"License: MIT\"></a>
+  <img src="docs/screenshots/homepage.png" alt="ContinueMySong Home" width="700">
 </p>
 
 ---
 
-## 📖 Table of Contents
+Yo, ever had a song stuck in your head but only remember ONE line? Or you're humming something and Shazam's like "nahhh"? 
 
-- [✨ Features](#-features)
-- [📸 Screenshots](#-screenshots)
-- [🚀 How It Works](#-how-it-works)
-- [🏗️ Tech Stack](#️-tech-stack)
-- [⚡ Quick Start](#-quick-start)
-- [🔧 Configuration](#-configuration)
-- [📡 API Endpoints](#-api-endpoints)
-- [🧪 Accuracy](#-accuracy)
-- [🏛️ Architecture](#️-architecture)
-- [📁 Project Structure](#-project-structure)
-- [🐳 Docker](#-docker)
-- [🔒 Security & Privacy](#-security--privacy)
-- [📋 Limitations](#-limitations)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
+**ContinueMySong** is your AI homie that:
+1. Listens to you sing (or reads what you type)
+2. Figures out what song it is using local AI (Whisper)
+3. Finds the EXACT moment that lyric appears
+4. Opens Spotify right at that timestamp so you can keep jamming
+
+No cloud nonsense. No paid APIs. Just pure open-source wizardry.
 
 ---
 
-## ✨ Features
+## ✨ What It Does
 
-| Feature | Description |
-|---------|-------------|
-| 🎤 **Voice Input** | Record lyrics via microphone with real-time waveform visualization |
-| ⌨️ **Text Input** | Type or paste lyrics directly with example suggestions |
-| 🧠 **Local AI Transcription** | OpenAI Whisper runs locally — no data sent to third parties |
-| 🔍 **Multi-Strategy Search** | Parallel search across YouTube, Genius, iTunes, and Musixmatch |
-| ⏱️ **Precise Timestamps** | RapidFuzz aligns lyrics against synced time-coded lines |
-| 🎧 **Spotify Integration** | Embedded preview + deep link to continue from the exact timestamp |
-| 📊 **Confidence Scoring** | Multi-signal confidence with source agreement bonuses |
-| 👍 **Feedback Learning** | Thumbs up/down buttons improve future results over time |
-| 🌍 **Multilingual** | Works with English, Hindi, Korean, Spanish, French, Portuguese, Japanese |
-| ⚡ **Real-time Streaming** | SSE-powered progressive results — see candidates as they're found |
+| What | How |
+|------|-----|
+| 🎤 **Sing into your mic** | Real-time waveform, 30sec max, Whisper transcribes locally |
+| ⌨️ **Type lyrics** | Paste "hello from the other side" and we do the rest |
+| 🧠 **AI runs on YOUR machine** | Zero data sent anywhere. Whisper stays local. |
+| 🔍 **Scours the internet** | YouTube, Genius, iTunes, Musixmatch — all at once |
+| ⏱️ **Finds the exact timestamp** | "0:44" — right when you sang that line |
+| 🎧 **Opens Spotify at that moment** | Click and continue from where you left off |
+| 👍 **Gets smarter** | Thumbs up/down = better results next time |
+| 🌍 **Works in 7 languages** | English, Hindi, Korean, Spanish, French, Portuguese, Japanese |
 
 ---
 
-## 📸 Screenshots
+## 📸 How It Looks
 
-<table align="center">
-  <tr>
-    <td align="center"><strong>Home Screen</strong></td>
-    <td align="center"><strong>Lyrics Input</strong></td>
-    <td align="center"><strong>Results</strong></td>
-  </tr>
-  <tr>
-    <td><img src=\"docs/screenshots/homepage.png\" alt=\"Home Screen\" width=\"300\"></td>
-    <td><img src=\"docs/screenshots/lyrics-input.png\" alt=\"Lyrics Input\" width=\"300\"></td>
-    <td><img src=\"docs/screenshots/results.png\" alt=\"Results\" width=\"300\"></td>
-  </tr>
-</table>
+| Sing into it | Type it out | BOOM results |
+|:---:|:---:|:---:|
+| ![Home](docs/screenshots/homepage.png) | ![Lyrics](docs/screenshots/lyrics-input.png) | ![Results](docs/screenshots/results.png) |
 
 ---
 
-## 🚀 How It Works
+## 🚀 Get Started in 2 Minutes
 
-\\\
-  🎤 Sing / ⌨️ Type
-        │
-        ▼
-  ┌─────────────────────────────────────────────────────┐
-  │                   FastAPI Backend                     │
-  │                                                     │
-  │  Audio → ffmpeg → Whisper → transcript              │
-  │                        │                            │
-  │                        ▼                            │
-  │  ┌──────────────────────────────────────────┐       │
-  │  │     PARALLEL SEARCH (all run at once)    │       │
-  │  │  • YouTube/yt-dlp  • Genius scraping     │       │
-  │  │  • iTunes Search   • Musixmatch (opt)    │       │
-  │  └──────────────────────────────────────────┘       │
-  │                        │                            │
-  │                        ▼                            │
-  │  Lyrics Fetch: LRCLIB (synced) → Genius (plain)     │
-  │                        │                            │
-  │                        ▼                            │
-  │  RapidFuzz Timestamp Alignment + Phonetic Matching  │
-  │                        │                            │
-  │                        ▼                            │
-  │  Spotify Resolution → Embed + Deep Link @ timestamp │
-  └─────────────────────────────────────────────────────┘
-        │
-        ▼
-  🎧 Song continues from your lyric on Spotify
-\\\
+### What you need
+- Node.js 18+
+- Python 3.9+
+- ffmpeg (`apt install ffmpeg` or `brew install ffmpeg`)
 
----
-
-## 🏗️ Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 14, TypeScript, Tailwind CSS, Framer Motion |
-| **Backend** | Python 3.9+, FastAPI, Uvicorn |
-| **Audio** | ffmpeg, librosa (mono 16kHz normalization) |
-| **Transcription** | OpenAI Whisper (local, \"base\" model) |
-| **Search** | YouTube/yt-dlp, Genius, iTunes Search API |
-| **Lyrics** | LRCLIB (synced), Genius (plain), Lyrics.ovh |
-| **Matching** | RapidFuzz (partial_ratio + token_set_ratio) |
-| **Output** | Spotify IFrame API + deep links with \?t=seconds\ |
-
----
-
-## ⚡ Quick Start
-
-### Prerequisites
-
-- **Node.js** 18+ and **npm**
-- **Python** 3.9+
-- **ffmpeg** installed and on PATH (\pt install ffmpeg\ / \rew install ffmpeg\)
-
-### One-Command Start (Linux/WSL)
-
-\\\ash
+### The easy way
+```bash
 chmod +x start.sh && ./start.sh
-\\\
+```
 
-This starts both backend (port 8000) and frontend (port 3000).
-
-### Manual Setup
+### The manual way
 
 **Backend:**
-
-\\\ash
+```bash
 cd backend
 python -m venv venv
 source venv/bin/activate
-pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
-cp .env.example .env  # Add Spotify credentials for direct track links
 uvicorn main:app --host 0.0.0.0 --port 8000
-\\\
+```
 
-> Whisper downloads its model (~140MB) on first startup.
+> First run downloads Whisper (~140MB). Grab a coffee ☕
 
 **Frontend:**
-
-\\\ash
+```bash
 cd frontend
 npm install
 npm run dev
-\\\
+```
 
-Open **http://localhost:3000** in your browser.
+Open **http://localhost:3000** and start singing!
 
----
-
-## 🔧 Configuration
-
-### Backend (\ackend/.env\)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| \SPOTIFY_CLIENT_ID\ | Recommended | Spotify Developer App Client ID |
-| \SPOTIFY_CLIENT_SECRET\ | Recommended | Spotify Developer App Client Secret |
-| \WHISPER_MODEL\ | No | Model size: \	iny\, \ase\ (default), \small\, \medium\ |
-| \MUSIXMATCH_API_KEY\ | No | Improves synced lyrics coverage |
-| \AUDD_API_TOKEN\ | No | Audio recognition (paid, opt-in only) |
-| \YTDLP_TIMEOUT\ | No | yt-dlp subprocess timeout in seconds (default: 5) |
-| \CORS_ORIGINS\ | No | Comma-separated allowed origins |
-
-### Frontend (\rontend/.env.local\)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| \NEXT_PUBLIC_API_URL\ | \http://localhost:8000\ | Backend URL |
+### Docker?
+Sure, we got you:
+```bash
+docker-compose up --build
+```
 
 ---
 
-## 📡 API Endpoints
+## 🧠 How It Works (the nerd stuff)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| \/health\ | GET | Health check + Whisper model status |
-| \/upload\ | POST | Upload audio → transcribe → identify → results |
-| \/identify\ | POST | Submit typed lyrics → identification results |
-| \/identify/stream\ | POST | SSE streaming with real-time candidate updates |
-| \/feedback\ | POST | Record thumbs up/down for result quality |
-| \/feedback/stats\ | GET | View aggregate feedback statistics |
-
-### Example Response
-
-\\\json
-{
-  \"success\": true,
-  \"transcript\": \"hello from the other side\",
-  \"results\": [
-    {
-      \"song\": \"Hello\",
-      \"artist\": \"Adele\",
-      \"confidence\": 91,
-      \"timestamp\": 44,
-      \"timestamp_display\": \"0:44\",
-      \"spotify_url\": \"https://open.spotify.com/track/...?t=44\",
-      \"lyrics_context\": \"... I must've called a thousand times\\n>>> Hello from the other side <<<\\nI must've called a thousand times...\",
-      \"strategy\": \"youtube\"
-    }
-  ]
-}
-\\\
+```
+You sing/type
+    │
+    ▼
+🎤 Audio? → ffmpeg → Whisper (local AI) → text
+    │
+    ▼
+🔍 PARALLEL SEARCH — all at once!
+    ├─ YouTube
+    ├─ Genius  
+    ├─ iTunes
+    └─ Musixmatch (optional)
+    │
+    ▼
+📜 Grab lyrics from LRCLIB / Genius / Lyrics.ovh
+    │
+    ▼
+🎯 RapidFuzz matches your line + finds timestamp
+    │
+    ▼
+🎧 Spotify opens at EXACTLY that second
+```
 
 ---
 
-## 🧪 Accuracy
+## 🏗️ What's Under the Hood
 
-Tested across **100 songs** in 7 languages:
+| Layer | Tech |
+|-------|------|
+| **Frontend** | Next.js 14, TypeScript, Tailwind CSS, Framer Motion |
+| **Backend** | Python 3.9+, FastAPI, Uvicorn |
+| **AI** | OpenAI Whisper (local, "base" model) |
+| **Search** | yt-dlp, Genius scraper, iTunes API |
+| **Lyrics** | LRCLIB, Genius, Lyrics.ovh |
+| **Matching** | RapidFuzz (fuzzy string matching) |
+| **Spotify** | IFrame API + deep links |
 
-| Language | Top-1 Accuracy | Top-3 Accuracy |
-|----------|:--------------:|:--------------:|
+---
+
+## 📁 Project Layout
+
+```
+├── backend/          # Python FastAPI + Whisper + search magic
+│   ├── main.py       # Where the API lives
+│   └── services/     # Audio, transcription, search, matching...
+├── frontend/         # Next.js app with all the UI goodness
+│   ├── app/          # Pages and layouts
+│   ├── components/   # React components (Navbar, Recorder, Cards...)
+│   └── lib/          # API client + SSE streaming
+├── docs/             # Screenshots + GitHub Pages site
+├── docker-compose.yml
+└── start.sh          # One-command launcher
+```
+
+---
+
+## ⚙️ Config
+
+### Backend (`backend/.env`)
+| Variable | What it does |
+|----------|-------------|
+| `SPOTIFY_CLIENT_ID` | Needed for direct Spotify links |
+| `SPOTIFY_CLIENT_SECRET` | Pair with the ID above |
+| `WHISPER_MODEL` | `tiny`, `base` (default), `small`, `medium` |
+| `MUSIXMATCH_API_KEY` | Optional — better synced lyrics |
+| `CORS_ORIGINS` | Allowed domains |
+
+### Frontend (`frontend/.env.local`)
+| Variable | Default |
+|----------|---------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` |
+
+---
+
+## 📡 API Endpoints (if you're into that)
+
+| Endpoint | What |
+|----------|------|
+| `GET /health` | Is it alive? |
+| `POST /upload` | Upload audio → find the song |
+| `POST /identify` | Send lyrics → get results |
+| `POST /identify/stream` | Same but with real-time SSE updates |
+| `POST /feedback` | Teach the algorithm |
+
+---
+
+## 🧪 Does It Actually Work?
+
+Tested on **100 songs** in 7 languages:
+
+| Language | Top-1 | Top-3 |
+|----------|:-----:|:-----:|
 | English | 90% | 93% |
 | Hindi (Romanized) | 93% | 93% |
 | Korean (Romanized) | 80% | 100% |
@@ -232,116 +188,32 @@ Tested across **100 songs** in 7 languages:
 | Spanish | 67% | 80% |
 | **Overall** | **84%** | **86%** |
 
-> Average identification time: **4.8 seconds** per query.
+Average time: **4.8 seconds** per query. Not bad, eh?
 
 ---
 
-## 🏛️ Architecture
+## 🤝 Wanna Contribute?
 
-- **Parallel Search**: All search strategies execute concurrently (ThreadPoolExecutor)
-- **Circuit Breaker**: Automatically skips failing services (e.g., LRCLIB) after consecutive failures
-- **Source Agreement**: Candidates found by multiple strategies get a confidence boost
-- **Feedback Loop**: User thumbs up/down stored locally and applied as scoring boosts
-- **SSE Streaming**: Results stream to the client as each candidate is processed
-- **Phonetic Matching**: Handles romanization variants (Hindi: tu/too, mein/main/mai)
-- **Penalty System**: Demotes lyric compilations, covers, and non-artist uploads
-- **Deduplication**: Intelligent song/artist pair dedup with title normalization
+Heck yeah! Here's how:
 
----
+1. 🍴 Fork it
+2. 🌿 `git checkout -b feature/cool-thing`
+3. 💻 Code it up
+4. 📬 `git push origin feature/cool-thing`
+5. 🔥 Open a PR
 
-## 📁 Project Structure
-
-\\\
-├── backend/
-│   ├── main.py                    # FastAPI app + endpoints
-│   ├── services/
-│   │   ├── audio_processor.py     # ffmpeg + librosa pipeline
-│   │   ├── transcriber.py         # Whisper singleton
-│   │   ├── song_identifier.py     # Multi-strategy search
-│   │   ├── lyrics_fetcher.py      # LRCLIB + Genius + Lyrics.ovh
-│   │   ├── timestamp_matcher.py   # RapidFuzz alignment
-│   │   ├── spotify_linker.py      # Spotify Web API resolution
-│   │   └── feedback_store.py      # Thumbs up/down persistence
-│   ├── utils/title_cleaner.py     # Title normalization + mojibake fix
-│   ├── requirements.txt
-│   └── .env.example
-├── frontend/
-│   ├── app/                       # Next.js app router
-│   │   ├── globals.css            # Global styles + animations
-│   │   ├── layout.tsx             # Root layout with metadata
-│   │   └── page.tsx               # Main page
-│   ├── components/                # React components
-│   │   ├── Navbar.tsx
-│   │   ├── HeroSection.tsx
-│   │   ├── MicRecorder.tsx
-│   │   ├── TextInput.tsx
-│   │   ├── ResultCard.tsx
-│   │   ├── LoadingOverlay.tsx
-│   │   ├── AnimatedWaveform.tsx
-│   │   ├── Confetti.tsx
-│   │   ├── ErrorBoundary.tsx
-│   │   └── Footer.tsx
-│   ├── lib/api.ts                 # API client + SSE handler
-│   └── package.json
-├── docs/screenshots/              # App screenshots
-├── start.sh                       # One-command dev launcher
-├── docker-compose.yml
-├── .github/workflows/ci.yml       # CI configuration
-└── README.md
-\\\
+Keep tests passing, code clean, and vibes positive.
 
 ---
 
-## 🐳 Docker
+## 📜 License
 
-\\\ash
-docker-compose up --build
-\\\
-
-The compose file starts both services with health checks. Set \NEXT_PUBLIC_API_URL\ as a build ARG for the frontend image in production.
+MIT — do whatever, just be cool about it.
 
 ---
 
-## 🔒 Security & Privacy
-
-- **No data leaves your machine** — Whisper runs locally, no cloud transcription
-- **No API keys required** — works with 100% free public APIs out of the box
-- **Upload limits** — 5MB max file size, 30s max recording, rate limiting enabled
-- **Input sanitization** — All search queries are allowlist-filtered before external calls
-- **No user data stored** — Feedback is anonymous and stored locally only
-
----
-
-## 📋 Limitations
-
-- Spotify web embed cannot start playback at a specific timestamp; the \"Continue from X:XX\" link works in the Spotify desktop/mobile app
-- Very short/generic lyrics (< 5 words) may produce ambiguous results
-- Non-Latin script songs require romanized input for best results
-- LRCLIB coverage varies; plain-lyrics fallback provides estimated timestamps
-- getUserMedia (microphone) requires a secure origin (localhost or HTTPS)
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Here's how you can help:
-
-1. **Fork** the repository
-2. **Create** a feature branch (\git checkout -b feature/amazing-feature\)
-3. **Commit** your changes (\git commit -m 'Add amazing feature'\)
-4. **Push** to the branch (\git push origin feature/amazing-feature\)
-5. **Open** a Pull Request
-
-Please make sure to update tests as appropriate and follow the existing code style.
-
----
-
-## 📄 License
-
-MIT — See [LICENSE](LICENSE).
-
----
-
-<p align=\"center\">
-  Made with ❤️ and 🎵 by <a href=\"https://github.com/Shashwat1729\">Shashwat Bajpai</a>
+<p align="center">
+  Made with 🎵, ☕, and questionable life choices by <a href="https://github.com/Shashwat1729">Shashwat Bajpai</a>
+  <br>
+  <sub>If this helped you, <a href="https://github.com/Shashwat1729/continuemysong-ai">star the repo</a> ⭐</sub>
 </p>

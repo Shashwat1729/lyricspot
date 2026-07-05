@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContinueMySong AI - Sing a lyric, find the song</title>
+  <meta name="description" content="Sing or type any lyric. We'll find the song and continue playing on Spotify right where you left off.">
+  <meta property="og:title" content="ContinueMySong AI">
+  <meta property="og:description" content="Sing a lyric, find the song. AI-powered music recognition.">
+  <meta property="og:image" content="screenshots/homepage.png">
+  <meta name="theme-color" content="#1DB954">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%23000'/><path d='M10 8 L10 24 L12 24 L12 14 L22 20 L22 24 L24 24 L24 8 L22 8 L22 18 L12 12 L12 8 Z' fill='%231DB954'/></svg>">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: #000;
+      color: #fff;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* === Particles === */
+    #particles {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .particle {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      background: rgba(29, 185, 84, 0.25);
+      border-radius: 50%;
+      animation: float-up 10s ease-in-out infinite;
+    }
+    @keyframes float-up {
+      0%, 100% { transform: translateY(0) translateX(0); opacity: 0; }
+      10% { opacity: 0.5; }
+      90% { opacity: 0.5; }
+      100% { transform: translateY(-100vh) translateX(30px); opacity: 0; }
+    }
+
+    /* === Layout === */
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* === Hero === */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 80px 0;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 100px;
+      background: rgba(29, 185, 84, 0.1);
+      border: 1px solid rgba(29, 185, 84, 0.2);
+      font-size: 13px;
+      color: #1DB954;
+      margin-bottom: 24px;
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 8vw, 5rem);
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+      animation: fadeIn 1s ease-out;
+    }
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, #1DB954, #22c55e, #4ade80);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
+      color: #9ca3af;
+      max-width: 600px;
+      margin-bottom: 32px;
+      animation: fadeIn 1.2s ease-out;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      animation: fadeIn 1.4s ease-out;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #1DB954, #22c55e);
+      color: #000;
+      box-shadow: 0 4px 20px rgba(29, 185, 84, 0.3);
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 30px rgba(29, 185, 84, 0.4);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      transform: translateY(-2px);
+    }
+
+    /* === Screenshots === */
+    .screenshots {
+      padding: 80px 0;
+    }
+    .section-title {
+      text-align: center;
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .section-sub {
+      text-align: center;
+      color: #6b7280;
+      margin-bottom: 48px;
+    }
+    .screenshot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .screenshot-card {
+      border-radius: 16px;
+      overflow: hidden;
+      background: #0d0d0d;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      transition: all 0.3s;
+    }
+    .screenshot-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(29, 185, 84, 0.3);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    }
+    .screenshot-card img {
+      width: 100%;
+      display: block;
+    }
+    .screenshot-card .label {
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #9ca3af;
+      font-weight: 500;
+    }
+
+    /* === Features === */
+    .features {
+      padding: 80px 0;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+    }
+    .feature-card {
+      padding: 24px;
+      border-radius: 16px;
+      background: #0d0d0d;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      transition: all 0.3s;
+    }
+    .feature-card:hover {
+      border-color: rgba(29, 185, 84, 0.2);
+      background: #111;
+    }
+    .feature-card .icon {
+      font-size: 28px;
+      margin-bottom: 12px;
+    }
+    .feature-card h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: #6b7280;
+      line-height: 1.5;
+    }
+
+    /* === Quick Start === */
+    .quickstart {
+      padding: 80px 0;
+    }
+    .code-block {
+      background: #0a0a0a;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 20px 24px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      overflow-x: auto;
+      color: #e5e7eb;
+      margin-bottom: 16px;
+    }
+    .code-block .comment { color: #6b7280; }
+    .code-block .cmd { color: #1DB954; }
+
+    /* === Footer === */
+    .footer {
+      text-align: center;
+      padding: 48px 0;
+      color: #6b7280;
+      font-size: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .footer a {
+      color: #1DB954;
+      text-decoration: none;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+    .footer .hearts { color: #ef4444; }
+
+    /* === Animations === */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in {
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    /* === Stars === */
+    .star-count {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* === Responsive === */
+    @media (max-width: 640px) {
+      .hero { padding: 60px 0; min-height: auto; }
+      .btn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Particles -->
+  <div id="particles"></div>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-badge">
+        <span>✦</span>
+        <span>AI-powered • Open Source • Free</span>
+      </div>
+
+      <h1>
+        Sing a lyric.<br>
+        <span class="highlight">We'll find the song.</span>
+      </h1>
+
+      <p>
+        Hum it, sing it, type it — ContinueMySong identifies the track, finds the exact moment you're at, and opens Spotify right there. All powered by local AI, zero cloud nonsense.
+      </p>
+
+      <div class="hero-actions">
+        <a href="https://github.com/Shashwat1729/continuemysong-ai" class="btn btn-primary" target="_blank">
+          <span>★</span>
+          <span>Star on GitHub</span>
+        </a>
+        <a href="#quickstart" class="btn btn-secondary">
+          <span>🚀</span>
+          <span>Get Started</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section class="screenshots">
+    <div class="container">
+      <h2 class="section-title">📸 See It in Action</h2>
+      <p class="section-sub">From singing to Spotify in seconds</p>
+      <div class="screenshot-grid">
+        <div class="screenshot-card">
+          <img src="screenshots/homepage.png" alt="Home screen with microphone and text input modes" loading="lazy">
+          <div class="label">🎤 Choose your input — sing or type</div>
+        </div>
+        <div class="screenshot-card">
+          <img src="screenshots/lyrics-input.png" alt="Typing lyrics into the text input" loading="lazy">
+          <div class="label">⌨️ Type those lyrics you remember</div>
+        </div>
+        <div class="screenshot-card">
+          <img src="screenshots/results.png" alt="Song identification results with Spotify embed" loading="lazy">
+          <div class="label">🎯 Found it! Continue on Spotify</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <div class="container">
+      <h2 class="section-title">⚡ Why This Slaps</h2>
+      <p class="section-sub">Built different. Actually different.</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="icon">🎤</div>
+          <h3>Voice or Text</h3>
+          <p>Sing into your mic or type the lyrics you remember. Both work, both are fast.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🧠</div>
+          <h3>AI Runs Local</h3>
+          <p>Whisper runs on your machine. Zero data uploaded. Your privacy > our profits.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🔍</div>
+          <h3>Multi-Source Search</h3>
+          <p>YouTube, Genius, iTunes, Musixmatch — all searched in parallel. Coverage is king.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⏱️</div>
+          <h3>Exact Timestamps</h3>
+          <p>Not just the song — we find the EXACT second your lyric appears. Uncanny accuracy.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🎧</div>
+          <h3>Spotify Deep Link</h3>
+          <p>One click opens Spotify at the right timestamp. Continue your jam instantly.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🌍</div>
+          <h3>7 Languages</h3>
+          <p>English, Hindi, Korean, Spanish, French, Portuguese, Japanese. Romanized? No problem.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section class="quickstart" id="quickstart">
+    <div class="container">
+      <h2 class="section-title">🚀 Get Started</h2>
+      <p class="section-sub">Local setup in under 2 minutes</p>
+
+      <div class="code-block">
+        <span class="comment"># Clone it</span><br>
+        git clone https://github.com/Shashwat1729/continuemysong-ai.git<br>
+        cd continuemysong-ai<br><br>
+        <span class="comment"># Backend</span><br>
+        cd backend<br>
+        python -m venv venv<br>
+        source venv/bin/activate<br>
+        pip install -r requirements.txt<br>
+        uvicorn main:app --host 0.0.0.0 --port 8000 &<br><br>
+        <span class="comment"># Frontend (new terminal)</span><br>
+        cd frontend<br>
+        npm install<br>
+        npm run dev<br><br>
+        <span class="comment"># Open http://localhost:3000 🎵</span>
+      </div>
+
+      <div style="text-align:center; margin-top: 24px;">
+        <a href="https://github.com/Shashwat1729/continuemysong-ai#readme" class="btn btn-secondary" target="_blank">
+          <span>📖</span>
+          <span>Full README & Docs</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <p>
+        Built with <span class="hearts">♥</span> by <a href="https://github.com/Shashwat1729">Shashwat Bajpai</a>
+      </p>
+      <p style="margin-top: 8px;">
+        <a href="https://github.com/Shashwat1729/continuemysong-ai">GitHub</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/Shashwat1729/continuemysong-ai/blob/main/LICENSE">MIT License</a>
+        &nbsp;·&nbsp;
+        <span id="stars">⭐ Loading stars...</span>
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // Particles
+    (function() {
+      const container = document.getElementById('particles');
+      for (let i = 0; i < 12; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        p.style.left = Math.random() * 100 + '%';
+        p.style.animationDuration = (8 + Math.random() * 8) + 's';
+        p.style.animationDelay = Math.random() * 8 + 's';
+        p.style.width = (2 + Math.random() * 3) + 'px';
+        p.style.height = p.style.width;
+        container.appendChild(p);
+      }
+    })();
+
+    // Load GitHub stars
+    fetch('https://api.github.com/repos/Shashwat1729/continuemysong-ai')
+      .then(r => r.json())
+      .then(d => {
+        const s = d.stargazers_count;
+        document.getElementById('stars').innerHTML = '<span>⭐</span> ' + s + ' star' + (s !== 1 ? 's' : '');
+      })
+      .catch(() => document.getElementById('stars').textContent = '⭐ Star on GitHub');
+  </script>
+</body>
+</html>
