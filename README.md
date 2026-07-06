@@ -1,4 +1,4 @@
-# 🎵 LyricSpot
+# [Music] LyricSpot
 
 **Sing a lyric. We'll find the song. Keep listening right where you left off.**
 
