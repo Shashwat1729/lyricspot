@@ -2,7 +2,7 @@
 
 **Sing a lyric. We'll find the song. Keep listening right where you left off.**
 
-[![GitHub Pages](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-1DB954?logo=github)](https://shashwat1729.github.io/lyricspot/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-1DB954?logo=github)](https://shashwat1729.github.io/lyricspot/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
@@ -13,67 +13,62 @@ Ever had a song stuck in your head but only remember one line? LyricSpot listens
 
 **No cloud, no tracking, no paid APIs.** Everything runs on your machine.
 
-## ✨ Features
+## Features
 
-🎤 **Voice Input** — Sing into your mic, 30s limit, real-time waveform  
-⌨️ **Text Input** — Type whatever lyrics you remember  
-🧠 **Local AI** — OpenAI Whisper runs entirely on your computer  
-🔍 **Multi-Source Search** — YouTube + Genius + iTunes + Musixmatch in parallel  
-⏱️ **Precise Timestamps** — Finds the exact second your lyric appears  
-🎧 **Spotify Deep Link** — One click opens Spotify at the right timestamp  
-🌍 **7 Languages** — English, Hindi, Korean, Spanish, French, Portuguese, Japanese
+- **Voice Input** - Sing into your mic, 30s limit, real-time waveform
+- **Text Input** - Type whatever lyrics you remember
+- **Local AI** - OpenAI Whisper runs entirely on your computer
+- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch in parallel
+- **Precise Timestamps** - Finds the exact second your lyric appears
+- **Spotify Deep Link** - One click opens Spotify at the right timestamp
+- **7 Languages** - English, Hindi, Korean, Spanish, French, Portuguese, Japanese
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-- Node.js 18+, Python 3.9+, `ffmpeg`
+- Node.js 18+, Python 3.9+, ffmpeg
 
 ### One command (Linux/WSL)
-```bash
+`ash
 chmod +x start.sh && ./start.sh
-```
+`
 
 ### Manual
 
 **Backend:**
-```bash
+`ash
 cd backend
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
-```
+`
 
 **Frontend:**
-```bash
+`ash
 cd frontend
 npm install && npm run dev
-```
+`
 
 Open **http://localhost:3000**
 
-## ⚙️ Environment Variables
+## Environment Variables
 
-Copy `backend/.env.example` to `backend/.env`:
+Copy ackend/.env.example to ackend/.env:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SPOTIFY_CLIENT_ID` | Recommended | — | Spotify API client ID |
-| `SPOTIFY_CLIENT_SECRET` | Recommended | — | Spotify API client secret |
-| `WHISPER_MODEL` | No | `base` | Model size: `tiny`, `base`, `small`, `medium` |
-| `CORS_ORIGINS` | No | — | Comma-separated allowed origins |
+| SPOTIFY_CLIENT_ID | Recommended | - | Spotify API client ID |
+| SPOTIFY_CLIENT_SECRET | Recommended | - | Spotify API client secret |
+| WHISPER_MODEL | No | base | Model size: tiny, base, small, medium |
+| CORS_ORIGINS | No | - | Comma-separated allowed origins |
 
-## 📸 Demo
 
-**Live site:** [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/)  
-**Interactive walkthrough:** [shashwat1729.github.io/lyricspot/demo/](https://shashwat1729.github.io/lyricspot/demo/)
+## Screenshots
 
-> The GitHub Pages site runs a demo mode. For full functionality, run the backend locally.
+| Voice Mode | Lyrics Mode | Results |
+|:---:|:---:|:---:|
+| ![Voice](docs/screenshots/homepage.png) | ![Lyrics](docs/screenshots/lyrics-input.png) | ![Results](docs/screenshots/results.png) |
 
-## 📁 Project Structure
+## Demo
 
-```
-├── backend/        # FastAPI + Whisper + search
-├── frontend/       # Next.js app
-├── docs/           # GitHub Pages build
-└── start.sh        # One-command launcher
-```
+**Live site:** [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/)
