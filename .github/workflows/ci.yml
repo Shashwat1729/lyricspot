@@ -19,7 +19,8 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: |
-          pip install -r requirements-dev.txt --index-url https://download.pytorch.org/whl/cpu
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
       - name: Lint (ruff)
         working-directory: backend
         run: |
@@ -47,4 +48,3 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
-
