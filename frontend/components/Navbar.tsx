@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from "react";
 import { Github, Music2, Star } from "lucide-react";
@@ -40,7 +40,7 @@ export function Navbar() {
 
         <div className="flex items-center gap-4">
           <a
-            href="https://github.com/Shashwat1729/continuemysong-ai"
+            href="https://github.com/Shashwat1729/lyricspot"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub repository"
@@ -50,7 +50,7 @@ export function Navbar() {
             <span className="hidden sm:inline">GitHub</span>
           </a>
           <a
-            href="https://github.com/Shashwat1729/continuemysong-ai/stargazers"
+            href="https://github.com/Shashwat1729/lyricspot/stargazers"
             target="_blank"
             rel="noreferrer"
             aria-label="Star on GitHub"
@@ -64,3 +64,4 @@ export function Navbar() {
     </motion.nav>
   );
 }
+

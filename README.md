@@ -1,19 +1,19 @@
-# 🎵 ContinueMySong AI
+﻿# ðŸŽµ LyricSpot
 
 **Sing a lyric. We'll find the song. Keep listening right where you left off.**
 
 <p align="center">
-  <img src="docs/screenshots/homepage.png" alt="ContinueMySong Home" width="700">
+  <img src="docs/screenshots/homepage.png" alt="LyricSpot Home" width="700">
 </p>
 
 <p align="center">
-  <a href="https://shashwat1729.github.io/continuemysong-ai/" target="_blank">
+  <a href="https://shashwat1729.github.io/lyricspot/" target="_blank">
     <img src="https://img.shields.io/badge/%F0%9F%8C%90%20Live%20Demo-GitHub%20Pages-1DB954?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Pages">
   </a>
-  <a href="https://github.com/Shashwat1729/continuemysong-ai" target="_blank">
+  <a href="https://github.com/Shashwat1729/lyricspot" target="_blank">
     <img src="https://img.shields.io/badge/%F0%9F%93%81%20Source%20Code-GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Repo">
   </a>
-  <a href="https://github.com/Shashwat1729/continuemysong-ai/blob/main/LICENSE" target="_blank">
+  <a href="https://github.com/Shashwat1729/lyricspot/blob/main/LICENSE" target="_blank">
     <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="MIT License">
   </a>
 </p>
@@ -22,41 +22,41 @@
 
 Ever had a song stuck in your head but only remember one line? You hum it into your phone, but Shazam gives you nothing?
 
-**ContinueMySong** is the answer. It listens to you sing (or reads what you type), identifies the song using local AI, finds the exact second your lyric appears, and opens Spotify right at that timestamp. No cloud, no paid APIs, no tracking — just pure open-source.
+**LyricSpot** is the answer. It listens to you sing (or reads what you type), identifies the song using local AI, finds the exact second your lyric appears, and opens Spotify right at that timestamp. No cloud, no paid APIs, no tracking â€” just pure open-source.
 
 ---
 
-## ✨ Features
+## âœ¨ Features
 
 | Feature | Description |
 |---------|-------------|
-| 🎤 **Voice Input** | Record yourself singing — 30 second limit, real-time waveform |
-| ⌨️ **Text Input** | Type whatever lyrics you remember, with example suggestions |
-| 🧠 **Local AI** | OpenAI Whisper runs entirely on your machine. Nothing leaves your computer. |
-| 🔍 **Multi-Source Search** | Searches YouTube, Genius, iTunes, and Musixmatch in parallel |
-| ⏱️ **Precise Timestamps** | RapidFuzz alignment finds the exact second your lyric appears |
-| 🎧 **Spotify Deep Link** | One click opens Spotify at the right timestamp |
-| 👍 **Feedback Learning** | Thumbs up/down makes future results more accurate |
-| 🌍 **Multilingual** | Works with English, Hindi, Korean, Spanish, French, Portuguese, Japanese |
+| ðŸŽ¤ **Voice Input** | Record yourself singing â€” 30 second limit, real-time waveform |
+| âŒ¨ï¸ **Text Input** | Type whatever lyrics you remember, with example suggestions |
+| ðŸ§  **Local AI** | OpenAI Whisper runs entirely on your machine. Nothing leaves your computer. |
+| ðŸ” **Multi-Source Search** | Searches YouTube, Genius, iTunes, and Musixmatch in parallel |
+| â±ï¸ **Precise Timestamps** | RapidFuzz alignment finds the exact second your lyric appears |
+| ðŸŽ§ **Spotify Deep Link** | One click opens Spotify at the right timestamp |
+| ðŸ‘ **Feedback Learning** | Thumbs up/down makes future results more accurate |
+| ðŸŒ **Multilingual** | Works with English, Hindi, Korean, Spanish, French, Portuguese, Japanese |
 
 ---
 
-## 📸 Screenshots
+## ðŸ“¸ Screenshots
 
 | Voice mode | Text mode | Results |
 |:---:|:---:|:---:|
 | ![Home](docs/screenshots/homepage.png) | ![Lyrics](docs/screenshots/lyrics-input.png) | ![Results](docs/screenshots/results.png) |
 
-> 🎯 **Live demo & docs:** [shashwat1729.github.io/continuemysong-ai](https://shashwat1729.github.io/continuemysong-ai/)
+> ðŸŽ¯ **Live demo & docs:** [shashwat1729.github.io/lyricspot](https://shashwat1729.github.io/lyricspot/)
 
 ---
 
-## 🚀 Quick Start
+## ðŸš€ Quick Start
 
 ### Prerequisites
 - **Node.js** 18+
 - **Python** 3.9+
-- **ffmpeg** — Install with `apt install ffmpeg` (Linux) or `brew install ffmpeg` (macOS)
+- **ffmpeg** â€” Install with `apt install ffmpeg` (Linux) or `brew install ffmpeg` (macOS)
 
 ### One-Command Start (Linux/WSL)
 ```bash
@@ -90,38 +90,38 @@ Open **http://localhost:3000** and start singing!
 docker-compose up --build
 ```
 
-> 🌐 **Want a quick overview?** Check out the [GitHub Pages site](https://shashwat1729.github.io/continuemysong-ai/)
+> ðŸŒ **Want a quick overview?** Check out the [GitHub Pages site](https://shashwat1729.github.io/lyricspot/)
 
 ---
 
-## 🧠 How It Works
+## ðŸ§  How It Works
 
 ```
 You sing / type lyrics
-        │
-        ▼
-🎤 Audio → ffmpeg → Whisper (local AI) → text transcript
-        │
-        ▼
-🔍 PARALLEL SEARCH (all at once)
-    ├─ YouTube / yt-dlp
-    ├─ Genius scraping
-    ├─ iTunes Search API
-    └─ Musixmatch (optional)
-        │
-        ▼
-📜 Lyrics fetched from LRCLIB / Genius / Lyrics.ovh
-        │
-        ▼
-🎯 RapidFuzz matches your line + finds the timestamp
-        │
-        ▼
-🎧 Spotify opens at exactly that second
+        â”‚
+        â–¼
+ðŸŽ¤ Audio â†’ ffmpeg â†’ Whisper (local AI) â†’ text transcript
+        â”‚
+        â–¼
+ðŸ” PARALLEL SEARCH (all at once)
+    â”œâ”€ YouTube / yt-dlp
+    â”œâ”€ Genius scraping
+    â”œâ”€ iTunes Search API
+    â””â”€ Musixmatch (optional)
+        â”‚
+        â–¼
+ðŸ“œ Lyrics fetched from LRCLIB / Genius / Lyrics.ovh
+        â”‚
+        â–¼
+ðŸŽ¯ RapidFuzz matches your line + finds the timestamp
+        â”‚
+        â–¼
+ðŸŽ§ Spotify opens at exactly that second
 ```
 
 ---
 
-## 🏗️ Tech Stack
+## ðŸ—ï¸ Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -135,53 +135,53 @@ You sing / type lyrics
 
 ---
 
-## 📁 Project Structure
+## ðŸ“ Project Structure
 
 ```
-├── backend/
-│   ├── main.py                    # FastAPI app + endpoints
-│   ├── services/                  # Audio, transcription, search, matching
-│   │   ├── audio_processor.py
-│   │   ├── transcriber.py         # Whisper integration
-│   │   ├── song_identifier.py     # Multi-strategy search
-│   │   ├── lyrics_fetcher.py
-│   │   ├── timestamp_matcher.py   # RapidFuzz alignment
-│   │   ├── spotify_linker.py
-│   │   ├── confidence_calculator.py
-│   │   └── feedback_store.py
-│   ├── utils/title_cleaner.py
-│   ├── requirements.txt
-│   └── .env.example
-├── frontend/
-│   ├── app/                       # Next.js app router
-│   │   ├── globals.css
-│   │   ├── layout.tsx
-│   │   └── page.tsx
-│   ├── components/                # React components
-│   │   ├── Navbar.tsx
-│   │   ├── HeroSection.tsx
-│   │   ├── MicRecorder.tsx
-│   │   ├── TextInput.tsx
-│   │   ├── ResultCard.tsx
-│   │   ├── LoadingOverlay.tsx
-│   │   ├── AnimatedWaveform.tsx
-│   │   ├── Confetti.tsx
-│   │   ├── ErrorBoundary.tsx
-│   │   └── Footer.tsx
-│   ├── lib/api.ts                 # API client + SSE handler
-│   └── package.json
-├── docs/                          # GitHub Pages site (static export)
-│   ├── index.html                 # The actual app interface
-│   ├── screenshots/
-│   └── _next/                     # Next.js static build
-├── docker-compose.yml
-├── start.sh
-└── README.md
+â”œâ”€â”€ backend/
+â”‚   â”œâ”€â”€ main.py                    # FastAPI app + endpoints
+â”‚   â”œâ”€â”€ services/                  # Audio, transcription, search, matching
+â”‚   â”‚   â”œâ”€â”€ audio_processor.py
+â”‚   â”‚   â”œâ”€â”€ transcriber.py         # Whisper integration
+â”‚   â”‚   â”œâ”€â”€ song_identifier.py     # Multi-strategy search
+â”‚   â”‚   â”œâ”€â”€ lyrics_fetcher.py
+â”‚   â”‚   â”œâ”€â”€ timestamp_matcher.py   # RapidFuzz alignment
+â”‚   â”‚   â”œâ”€â”€ spotify_linker.py
+â”‚   â”‚   â”œâ”€â”€ confidence_calculator.py
+â”‚   â”‚   â””â”€â”€ feedback_store.py
+â”‚   â”œâ”€â”€ utils/title_cleaner.py
+â”‚   â”œâ”€â”€ requirements.txt
+â”‚   â””â”€â”€ .env.example
+â”œâ”€â”€ frontend/
+â”‚   â”œâ”€â”€ app/                       # Next.js app router
+â”‚   â”‚   â”œâ”€â”€ globals.css
+â”‚   â”‚   â”œâ”€â”€ layout.tsx
+â”‚   â”‚   â””â”€â”€ page.tsx
+â”‚   â”œâ”€â”€ components/                # React components
+â”‚   â”‚   â”œâ”€â”€ Navbar.tsx
+â”‚   â”‚   â”œâ”€â”€ HeroSection.tsx
+â”‚   â”‚   â”œâ”€â”€ MicRecorder.tsx
+â”‚   â”‚   â”œâ”€â”€ TextInput.tsx
+â”‚   â”‚   â”œâ”€â”€ ResultCard.tsx
+â”‚   â”‚   â”œâ”€â”€ LoadingOverlay.tsx
+â”‚   â”‚   â”œâ”€â”€ AnimatedWaveform.tsx
+â”‚   â”‚   â”œâ”€â”€ Confetti.tsx
+â”‚   â”‚   â”œâ”€â”€ ErrorBoundary.tsx
+â”‚   â”‚   â””â”€â”€ Footer.tsx
+â”‚   â”œâ”€â”€ lib/api.ts                 # API client + SSE handler
+â”‚   â””â”€â”€ package.json
+â”œâ”€â”€ docs/                          # GitHub Pages site (static export)
+â”‚   â”œâ”€â”€ index.html                 # The actual app interface
+â”‚   â”œâ”€â”€ screenshots/
+â”‚   â””â”€â”€ _next/                     # Next.js static build
+â”œâ”€â”€ docker-compose.yml
+â”œâ”€â”€ start.sh
+â””â”€â”€ README.md
 ```
 
 ---
 
-## ⚙️ Configuration
+## âš™ï¸ Configuration
 
 ### Backend (`backend/.env`)
 | Variable | Required | Description |
@@ -199,20 +199,20 @@ You sing / type lyrics
 
 ---
 
-## 📡 API Endpoints
+## ðŸ“¡ API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check + Whisper model status |
-| `/upload` | POST | Upload audio → transcribe → identify → results |
-| `/identify` | POST | Submit typed lyrics → identification results |
+| `/upload` | POST | Upload audio â†’ transcribe â†’ identify â†’ results |
+| `/identify` | POST | Submit typed lyrics â†’ identification results |
 | `/identify/stream` | POST | SSE streaming with real-time candidate updates |
 | `/feedback` | POST | Record thumbs up/down for result quality |
 | `/feedback/stats` | GET | View aggregate feedback statistics |
 
 ---
 
-## 🧪 Accuracy
+## ðŸ§ª Accuracy
 
 Tested on **100 songs** across 7 languages:
 
@@ -232,36 +232,37 @@ Average identification time: **4.8 seconds** per query.
 ---
 
 
-## 🎬 Demo
+## ðŸŽ¬ Demo
 
 See the app in action with our interactive slideshow:
 
-> **[📺 Live Demo Slideshow](https://shashwat1729.github.io/continuemysong-ai/demo/)**
+> **[ðŸ“º Live Demo Slideshow](https://shashwat1729.github.io/lyricspot/demo/)**
 
-Or just visit the [GitHub Pages site](https://shashwat1729.github.io/continuemysong-ai/) and try it yourself — no backend required!
+Or just visit the [GitHub Pages site](https://shashwat1729.github.io/lyricspot/) and try it yourself â€” no backend required!
 
 ---
-## 🤝 Contributing
+## ðŸ¤ Contributing
 
 Contributions are welcome! Here's how:
 
-1. 🍴 Fork the repository
-2. 🌿 Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. 💻 Make your changes
-4. 📬 Push and open a Pull Request (`git push origin feature/amazing-feature`)
+1. ðŸ´ Fork the repository
+2. ðŸŒ¿ Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. ðŸ’» Make your changes
+4. ðŸ“¬ Push and open a Pull Request (`git push origin feature/amazing-feature`)
 
 Please keep tests passing and follow the existing code style.
 
 ---
 
-## 📄 License
+## ðŸ“„ License
 
-MIT — See [LICENSE](LICENSE).
+MIT â€” See [LICENSE](LICENSE).
 
 ---
 
 <p align="center">
-  Made with 🎵 by <a href="https://github.com/Shashwat1729">Shashwat Bajpai</a>
+  Made with ðŸŽµ by <a href="https://github.com/Shashwat1729">Shashwat Bajpai</a>
   <br>
-  <sub><a href="https://github.com/Shashwat1729/continuemysong-ai">🌟 Star on GitHub</a></sub>
+  <sub><a href="https://github.com/Shashwat1729/lyricspot">ðŸŒŸ Star on GitHub</a></sub>
 </p>
+

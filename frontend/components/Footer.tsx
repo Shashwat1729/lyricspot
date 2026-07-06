@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { motion } from "framer-motion";
 import { Music2, Github, Heart } from "lucide-react";
@@ -21,7 +21,7 @@ export function Footer() {
             Made with <Heart className="w-3 h-3 text-red-500/70" /> and AI
           </span>
           <a
-            href="https://github.com/Shashwat1729/continuemysong-ai"
+            href="https://github.com/Shashwat1729/lyricspot"
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1.5 text-gray-500 hover:text-white transition-colors"
@@ -34,3 +34,4 @@ export function Footer() {
     </motion.footer>
   );
 }
+

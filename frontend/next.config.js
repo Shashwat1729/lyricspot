@@ -1,8 +1,8 @@
-/** @type {import('next').NextConfig} */
+﻿/** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "export",
-  basePath: "/continuemysong-ai",
-  assetPrefix: "/continuemysong-ai/",
+  basePath: "/lyricspot",
+  assetPrefix: "/lyricspot/",
   trailingSlash: true,
   images: {
     unoptimized: true,
@@ -10,3 +10,4 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+
