@@ -1,4 +1,4 @@
-# ContinueMySong AI Backend Dependencies
+﻿# ContinueMySong AI Backend Dependencies
 # NOTE: ffmpeg must be installed separately (system dependency for audio conversion)
 # Ubuntu/Debian: sudo apt install ffmpeg
 # macOS: brew install ffmpeg
@@ -10,7 +10,6 @@ python-multipart==0.0.6
 openai-whisper==20231117
 # Install torch CPU-only for smaller footprint:
 # pip install torch --index-url https://download.pytorch.org/whl/cpu
-torch
 librosa==0.10.1
 soundfile==0.12.1
 numpy>=1.21.0,<2.0.0
