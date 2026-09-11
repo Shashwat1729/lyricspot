@@ -4,7 +4,7 @@
   "theme_color": "#1DB954",
   "background_color": "#000000",
   "display": "standalone",
-  "start_url": "/",
+  "start_url": "/lyricspot/",
   "icons": [
     {
       "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%23000' width='192' height='192'/%3E%3Cpath fill='%231DB954' d='M120 36v76.6a24 24 0 1 1-12-20.8V66.4l-40 8v51.2a24 24 0 1 1-12-20.8V58z'/%3E%3C/svg%3E",

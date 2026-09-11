@@ -128,6 +128,15 @@ class TextInput(BaseModel):
 MAX_LYRICS_LENGTH = 1000  # characters (generous for multi-line lyric transcripts)
 MAX_FILE_SIZE = 5_000_000  # 5MB upload limit
 
+# Transcription confidence below this is treated as unusable input.
+# Heuristic score only (duration-weighted Whisper logprobs penalized by
+# no-speech probability) — not a calibrated probability.
+TRANSCRIPTION_MIN_CONFIDENCE = float(os.getenv("TRANSCRIPTION_MIN_CONFIDENCE", "0.35"))
+
+# Margin between top-1 and top-2 final confidence for the "high" band.
+CONFIDENCE_HIGH_MARGIN = float(os.getenv("CONFIDENCE_HIGH_MARGIN", "10"))
+CONFIDENCE_HIGH_THRESHOLD = int(os.getenv("CONFIDENCE_HIGH_THRESHOLD", "70"))
+
 
 def _sanitize_lyrics(text: str) -> str:
     """Sanitize user input before passing to external APIs."""
@@ -283,24 +292,44 @@ def _prefer_original_artist(results: list) -> list:
     return reordered
 
 
-def _process_candidate(candidate: dict, transcript: str) -> dict:
-    """Process a single candidate: lyrics → timestamp → spotify → layered confidence scoring."""
+def _process_candidate(
+    candidate: dict,
+    transcript: str,
+    language: Optional[str] = None,
+) -> dict:
+    """Process a single candidate: lyrics → timestamp → spotify → layered confidence scoring.
+
+    Args:
+        candidate: Raw candidate with song/artist plus optional
+            `source_count` (real distinct-strategy count attached by the
+            caller after grouping). Falls back to len(sources) or 1.
+        transcript: Sanitized transcript text.
+        language: Whisper-detected language tag (gates phonetic rules).
+    """
     song = candidate["song"]
     artist = candidate["artist"]
     search_confidence = candidate.get("confidence", 50)
     strategy = candidate.get("strategy", "unknown")
+    sources = candidate.get("sources") or ([strategy] if strategy != "unknown" else [])
+    try:
+        source_count = int(candidate.get("source_count", len(sources) or 1))
+    except (TypeError, ValueError):
+        source_count = 1
+    source_count = max(1, source_count)
 
     timestamp = 0
     timestamp_estimated = False
     lyrics_context = None
     lyrics_match_score = None
     exact_lyrics_match = False
+    occurrences: list = []
 
     try:
         lyrics_lines = lyrics_fetcher.fetch_synced_lyrics(song, artist)
         synced_match_result = None
         if lyrics_lines:
-            synced_match_result = timestamp_matcher.find_match(transcript, lyrics_lines)
+            synced_match_result = timestamp_matcher.find_match(transcript, lyrics_lines, language)
+            occurrences = timestamp_matcher.find_occurrences(transcript, lyrics_lines, language)
             if synced_match_result and synced_match_result["confidence"] >= 30:
                 timestamp = synced_match_result["timestamp"]
                 lyrics_match_score = synced_match_result["confidence"]
@@ -401,6 +430,8 @@ def _process_candidate(candidate: dict, transcript: str) -> dict:
         pass
 
     # === LAYERED CONFIDENCE CALCULATION ===
+    # source_count is the REAL distinct-strategy count attached by the caller
+    # after grouping — lyrics match dominates, agreement is supporting evidence.
     match_confidence = confidence_calculator.calculate(
         transcript=transcript,
         song=song,
@@ -408,7 +439,7 @@ def _process_candidate(candidate: dict, transcript: str) -> dict:
         lyrics_match_score=lyrics_match_score,
         exact_lyrics_match=exact_lyrics_match,
         search_confidence=search_confidence,
-        source_count=1,  # Per-candidate; source agreement handled at ranking stage
+        source_count=source_count,
         spotify_popularity=spotify_popularity,
         feedback_boost=feedback_boost,
         has_timestamp=(timestamp > 0),
@@ -423,9 +454,20 @@ def _process_candidate(candidate: dict, transcript: str) -> dict:
         "timestamp_display": spotify_linker.format_timestamp(timestamp),
         "timestamp_estimated": timestamp_estimated,
         "lyrics_context": lyrics_context,
+        "occurrences": occurrences,
+        "ambiguous": len(occurrences) > 1,
         "spotify_url": spotify_url,
         "album_art": spotify_linker.get_artwork(song, artist) or "",
         "strategy": strategy,
+        "sources": sorted(sources),
+        "source_count": source_count,
+        "debug": {
+            "lyrics_match_score": lyrics_match_score,
+            "exact_lyrics_match": exact_lyrics_match,
+            "search_prior": search_confidence,
+            "source_count": source_count,
+            "timestamp_quality": synced_match_result["confidence"] if synced_match_result else None,
+        },
     }
 
 
@@ -446,7 +488,25 @@ def _make_fallback_result(transcript: str, confidence: int = 30) -> dict:
     }
 
 
-async def _build_results(transcript: str) -> dict:
+def _confidence_label(top_confidence: int, margin: float) -> str:
+    """Map absolute score + top-1/top-2 margin to a UX band.
+
+    Delegates to services.confidence_calculator.confidence_label so the
+    band logic lives in exactly one place; env-configured thresholds apply.
+    """
+    from services.confidence_calculator import confidence_label
+    return confidence_label(
+        top_confidence, margin,
+        high_threshold=CONFIDENCE_HIGH_THRESHOLD,
+        high_margin=CONFIDENCE_HIGH_MARGIN,
+    )
+
+
+async def _build_results(
+    transcript: str,
+    language: Optional[str] = None,
+    transcription_confidence: Optional[float] = None,
+) -> dict:
     """
     Core pipeline: identify songs from transcript text.
     Always returns top results (never "not found").
@@ -455,8 +515,23 @@ async def _build_results(transcript: str) -> dict:
     if not transcript or len(transcript.strip()) < 3:
         return {
             "success": False,
+            "confidence_label": "low",
             "error": "No lyrics detected. Please try again with more words.",
             "transcript": transcript or "",
+            "results": [],
+        }
+
+    # Guard: transcription too uncertain to search meaningfully.
+    if transcription_confidence is not None and transcription_confidence < TRANSCRIPTION_MIN_CONFIDENCE:
+        logger.info(
+            "identification_skipped transcript_len=%d transcription_confidence=%.3f",
+            len(transcript), transcription_confidence,
+        )
+        return {
+            "success": False,
+            "confidence_label": "low",
+            "error": "Couldn't hear that clearly. Try singing a little longer.",
+            "transcript": transcript,
             "results": [],
         }
 
@@ -468,27 +543,32 @@ async def _build_results(transcript: str) -> dict:
         return {
             "success": True,
             "partial": True,
+            "confidence_label": "low",
+            "margin": 0.0,
             "transcript": transcript,
             "results": [_make_fallback_result(transcript)],
         }
 
-    # Source agreement bonus: if multiple strategies found the same song, boost confidence
-    _title_counts: dict[str, int] = {}
+    # True source coverage: count distinct strategies per canonical song+artist.
+    # identify_multiple already merges duplicates and tracks `sources`, but
+    # recompute here defensively so _process_candidate always gets the real
+    # count even if callers pass hand-built candidate lists (tests, SSE path).
+    _coverage: dict[tuple[str, str], set] = {}
     for c in candidates:
-        normalized = _normalize_song_title(c.get("song", ""))
-        _title_counts[normalized] = _title_counts.get(normalized, 0) + 1
+        key = (c.get("song", "").lower().strip(), c.get("artist", "").lower().strip())
+        _coverage.setdefault(key, set()).update(c.get("sources") or [c.get("strategy", "unknown")])
     for c in candidates:
-        normalized = _normalize_song_title(c.get("song", ""))
-        if _title_counts.get(normalized, 0) >= 2:
-            # Multiple sources agree — boost confidence by up to 10
-            agreement_bonus = min(10, (_title_counts[normalized] - 1) * 5)
-            c["confidence"] = min(95, c.get("confidence", 50) + agreement_bonus)
+        key = (c.get("song", "").lower().strip(), c.get("artist", "").lower().strip())
+        c["source_count"] = len(_coverage.get(key, {c.get("strategy", "unknown")}))
 
     # For each candidate, process lyrics + timestamp + spotify (parallel via executor)
     results = []
     if _candidate_executor is not None:
         loop = asyncio.get_running_loop()
-        tasks = [loop.run_in_executor(_candidate_executor, _process_candidate, c, transcript) for c in candidates[:5]]
+        tasks = [
+            loop.run_in_executor(_candidate_executor, _process_candidate, c, transcript, language)
+            for c in candidates[:5]
+        ]
         settled = await asyncio.gather(*tasks, return_exceptions=True)
         for r in settled:
             if isinstance(r, Exception):
@@ -498,12 +578,18 @@ async def _build_results(transcript: str) -> dict:
     else:
         for c in candidates[:5]:
             try:
-                results.append(_process_candidate(c, transcript))
+                results.append(_process_candidate(c, transcript, language))
             except Exception as e:
                 logger.warning(f"Candidate processing error in /identify: {e}")
 
-    # Sort by confidence (highest first)
-    results.sort(key=lambda x: x["confidence"], reverse=True)
+    # Deterministic sort: confidence desc, then song/artist (ties stable).
+    results.sort(
+        key=lambda x: (
+            -int(x.get("confidence", 0)),
+            x.get("song", "").lower(),
+            x.get("artist", "").lower(),
+        )
+    )
 
     # Prefer original artists: when two results share the same song title (normalized)
     # and similar confidence (within 5 pts), prefer the one with a cleaner title
@@ -527,15 +613,37 @@ async def _build_results(transcript: str) -> dict:
     if not results:
         results = [_make_fallback_result(transcript, confidence=20)]
 
+    top_conf = int(results[0].get("confidence", 0))
+    second_conf = int(results[1].get("confidence", 0)) if len(results) > 1 else 0
+    margin = round(float(top_conf - second_conf), 1)
+    label = _confidence_label(top_conf, margin)
+
+    logger.info(
+        "identification_complete transcript_len=%d language=%s "
+        "transcription_confidence=%s top=%s - %s conf=%d margin=%.1f label=%s",
+        len(transcript), language,
+        ("%.3f" % transcription_confidence) if transcription_confidence is not None else "n/a",
+        results[0].get("song"), results[0].get("artist"),
+        top_conf, margin, label,
+    )
+
     return {
         "success": True,
-        "partial": results[0]["confidence"] < 50,
+        "partial": top_conf < 50,
+        "confidence_label": label,
+        "margin": margin,
         "transcript": transcript,
         "results": results,
+        "debug": {
+            "language": language,
+            "transcription_confidence": transcription_confidence,
+            "candidate_count": len(results),
+            "top_sources": results[0].get("sources", []),
+        },
         # Also provide the top result in flat format for backward compatibility
         "song": results[0]["song"],
         "artist": results[0]["artist"],
-        "confidence": results[0]["confidence"],
+        "confidence": top_conf,
         "timestamp": results[0]["timestamp"],
         "spotify_url": results[0]["spotify_url"],
     }
@@ -596,11 +704,18 @@ async def upload_audio(request: Request, file: UploadFile = File(...)):
         # Step 3: Normalize audio
         audio_processor.normalize_audio(str(wav_path))
 
-        # Step 4: Transcribe with Whisper
-        transcript = transcriber.transcribe(str(wav_path))
+        # Step 4: Transcribe with Whisper (uncertainty preserved)
+        transcription = transcriber.transcribe_result(str(wav_path))
+        transcript = transcription.text
 
         # Step 5-8: Identify, lyrics, timestamp, Spotify URL
-        return JSONResponse(content=await _build_results(transcript))
+        return JSONResponse(
+            content=await _build_results(
+                transcript,
+                language=transcription.language,
+                transcription_confidence=transcription.confidence,
+            )
+        )
 
     except HTTPException:
         raise
@@ -699,17 +814,15 @@ async def identify_text_stream(request: Request, body: TextInput):
             return
 
         top_candidates = candidates[:5]
-        
-        # Source agreement bonus for SSE path
-        _title_counts_sse: dict[str, int] = {}
+
+        # True source coverage (same as non-streaming path).
+        _coverage_sse: dict[tuple[str, str], set] = {}
         for c in top_candidates:
-            normalized = _normalize_song_title(c.get("song", ""))
-            _title_counts_sse[normalized] = _title_counts_sse.get(normalized, 0) + 1
+            key = (c.get("song", "").lower().strip(), c.get("artist", "").lower().strip())
+            _coverage_sse.setdefault(key, set()).update(c.get("sources") or [c.get("strategy", "unknown")])
         for c in top_candidates:
-            normalized = _normalize_song_title(c.get("song", ""))
-            if _title_counts_sse.get(normalized, 0) >= 2:
-                agreement_bonus = min(10, (_title_counts_sse[normalized] - 1) * 5)
-                c["confidence"] = min(95, c.get("confidence", 50) + agreement_bonus)
+            key = (c.get("song", "").lower().strip(), c.get("artist", "").lower().strip())
+            c["source_count"] = len(_coverage_sse.get(key, {c.get("strategy", "unknown")}))
         
         yield emit({
             "stage": "found",
@@ -751,7 +864,13 @@ async def identify_text_stream(request: Request, body: TextInput):
                     "total": len(top_candidates),
                 })
 
-        results.sort(key=lambda x: x["confidence"], reverse=True)
+        results.sort(
+            key=lambda x: (
+                -int(x.get("confidence", 0)),
+                x.get("song", "").lower(),
+                x.get("artist", "").lower(),
+            )
+        )
 
         # Apply same post-processing as non-streaming path
         results = _prefer_original_artist(results)
@@ -768,11 +887,17 @@ async def identify_text_stream(request: Request, body: TextInput):
                 deduped.append(r)
         results = _prefer_original_artist(deduped)
 
+        _top = int(results[0].get("confidence", 0)) if results else 0
+        _second = int(results[1].get("confidence", 0)) if len(results) > 1 else 0
+        _margin = round(float(_top - _second), 1)
+
         yield emit({
             "stage": "complete",
             "results": results,
             "transcript": transcript,
             "success": True,
+            "confidence_label": _confidence_label(_top, _margin),
+            "margin": _margin,
         })
 
     return StreamingResponse(

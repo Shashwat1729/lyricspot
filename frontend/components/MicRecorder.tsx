@@ -13,7 +13,7 @@ interface MicRecorderProps {
   onLoadingChange?: (loading: boolean, status?: "uploading" | "processing") => void;
 }
 
-const MAX_DURATION = 30;
+const MAX_DURATION = 15;
 const MIN_DURATION = 3;
 
 export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
@@ -97,7 +97,17 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
       if (message.includes("timeout") || message.includes("ECONNABORTED")) {
         setError("Request timed out. The server may be loading the AI model for the first time.");
       } else if (message.includes("Network Error") || message.includes("ERR_NETWORK")) {
-        setError("Cannot reach the server. Please ensure the backend is running on port 8000.");
+        // On the static GitHub Pages demo there is no backend to start —
+        // guide visitors to the working Lyrics-tab demo instead.
+        const isStaticDemo =
+          typeof window !== "undefined" &&
+          window.location.hostname !== "localhost" &&
+          window.location.hostname !== "127.0.0.1";
+        setError(
+          isStaticDemo
+            ? "Voice identification needs the backend server, which isn't running on this demo site. Try the Lyrics tab instead — it works without a backend."
+            : "Cannot reach the server. Please ensure the backend is running on port 8000."
+        );
       } else {
         setError(message);
       }
@@ -273,7 +283,7 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
               transition={{ delay: 0.4 }}
               className="mt-1 text-xs text-gray-600"
             >
-              Max 30 seconds, minimum 3 seconds
+              Sing for 5-10 seconds for the best results (max 15s)
             </motion.p>
           </motion.div>
         )}

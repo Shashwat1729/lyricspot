@@ -22,6 +22,20 @@ from rapidfuzz import fuzz
 logger = logging.getLogger(__name__)
 
 
+def confidence_label(top_confidence: int, margin: float, high_threshold: int = 70, high_margin: float = 10) -> str:
+    """Map absolute score + top-1/top-2 margin to a UX band.
+
+    - "high": strong absolute score AND sufficiently large margin
+    - "uncertain": plausible result but weak margin
+    - "low": very weak candidate
+    """
+    if top_confidence >= high_threshold and margin >= high_margin:
+        return "high"
+    if top_confidence >= 50:
+        return "uncertain"
+    return "low"
+
+
 class ConfidenceCalculator:
     """Multi-layered confidence scoring engine."""
 

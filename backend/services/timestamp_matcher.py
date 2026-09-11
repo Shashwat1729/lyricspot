@@ -24,19 +24,49 @@ _PHONETIC_NORMALIZATIONS = [
 ]
 
 
-def _normalize_phonetic(text: str) -> str:
-    """Normalize common romanization variants for better fuzzy matching."""
+def _normalize_phonetic(text: str, language: Optional[str] = None) -> str:
+    """Normalize common romanization variants for better fuzzy matching.
+
+    Hindi-specific rules apply only when the language is unknown or Hindi
+    (e.g. "hi", "hi-Latn"). They are never forced onto other languages.
+    """
     text = text.lower().strip()
+    lang = (language or "").lower()
+    apply_hindi = not lang or lang.startswith("hi")
+    if not apply_hindi:
+        return text
     for pattern, replacement in _PHONETIC_NORMALIZATIONS:
         text = re.sub(pattern, replacement, text)
     return text
+
+
+def _score_line(
+    transcript_lower: str,
+    transcript_normalized: str,
+    line_text: str,
+    language: Optional[str] = None,
+) -> int:
+    """Score one lyric line with the standard multi-metric combination."""
+    line_normalized = _normalize_phonetic(line_text, language)
+    score = max(fuzz.ratio(transcript_lower, line_text),
+                fuzz.ratio(transcript_normalized, line_normalized))
+    partial_score = max(fuzz.partial_ratio(transcript_lower, line_text),
+                        fuzz.partial_ratio(transcript_normalized, line_normalized))
+    token_score = max(fuzz.token_sort_ratio(transcript_lower, line_text),
+                      fuzz.token_sort_ratio(transcript_normalized, line_normalized))
+    token_set_score = max(fuzz.token_set_ratio(transcript_lower, line_text),
+                          fuzz.token_set_ratio(transcript_normalized, line_normalized))
+    effective = max(score, partial_score, token_score, token_set_score)
+    if effective == token_set_score and len(line_text) > len(transcript_lower) * 1.3:
+        effective = max(score, partial_score, token_score)
+    return int(effective)
 
 
 class TimestampMatcher:
     """Finds the best matching lyric line and its timestamp using fuzzy matching."""
 
     def find_match(
-        self, transcript: str, lyrics_lines: List[Dict]
+        self, transcript: str, lyrics_lines: List[Dict], language: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Compare transcript against every lyric line to find the best match.
@@ -45,6 +75,7 @@ class TimestampMatcher:
         Args:
             transcript: Transcribed text from user's singing
             lyrics_lines: List of dicts with 'timestamp_seconds' and 'text'
+            language: Whisper-detected language tag (gates phonetic rules)
 
         Returns:
             Dict with matched_line, timestamp, confidence
@@ -53,7 +84,7 @@ class TimestampMatcher:
             return None
 
         transcript_lower = transcript.lower().strip()
-        transcript_normalized = _normalize_phonetic(transcript)
+        transcript_normalized = _normalize_phonetic(transcript, language)
         # Extract words for cheap pre-filter
         transcript_words = set(transcript_lower.split())
         best_match = None
@@ -70,7 +101,7 @@ class TimestampMatcher:
             filtered_lines = [l for l in lyrics_lines if l.get("text", "").strip() and len(l.get("text", "").strip()) >= 3]
 
         # Pre-compute normalized text for all filtered lines
-        precomputed = [(line, line.get("text", "").lower().strip(), _normalize_phonetic(line.get("text", "").lower().strip())) for line in filtered_lines]
+        precomputed = [(line, line.get("text", "").lower().strip(), _normalize_phonetic(line.get("text", "").lower().strip(), language)) for line in filtered_lines]
 
         for line, line_text, line_normalized in precomputed:
 
@@ -138,7 +169,7 @@ class TimestampMatcher:
                 if not transcript_words & combined_words and best_score > 0:
                     continue
 
-                combined_normalized = _normalize_phonetic(combined_text)
+                combined_normalized = _normalize_phonetic(combined_text, language)
                 score = fuzz.ratio(transcript_normalized, combined_normalized)
                 partial_score = fuzz.partial_ratio(transcript_normalized, combined_normalized)
                 token_set_score = fuzz.token_set_ratio(transcript_normalized, combined_normalized)
@@ -208,3 +239,62 @@ class TimestampMatcher:
                 }
 
         return best_match
+
+    def find_occurrences(
+        self,
+        transcript: str,
+        lyrics_lines: List[Dict],
+        language: Optional[str] = None,
+        min_score: int = 70,
+        dedupe_seconds: float = 5.0,
+    ) -> List[Dict]:
+        """Find all strong occurrences of the transcript in synced lyrics.
+
+        Repeated choruses produce multiple near-identical lines at different
+        timestamps; returning only one can look like a wrong answer. This
+        scores every line with the same multi-metric combination as
+        find_match, keeps lines at or above min_score, deduplicates
+        timestamps within dedupe_seconds, and ranks deterministically by
+        (-score, timestamp).
+
+        Args:
+            transcript: Transcribed text from user's singing
+            lyrics_lines: List of dicts with 'timestamp_seconds' and 'text'
+            language: Whisper-detected language tag (gates phonetic rules)
+            min_score: Minimum match score (0-100) to include
+            dedupe_seconds: Timestamps closer than this are one occurrence
+
+        Returns:
+            List of {"timestamp": float, "match_score": int, "matched_line": str}
+        """
+        if not transcript or not lyrics_lines:
+            return []
+
+        transcript_lower = transcript.lower().strip()
+        if len(transcript_lower) < 3:
+            return []
+        transcript_normalized = _normalize_phonetic(transcript, language)
+
+        scored = []
+        for line in lyrics_lines:
+            text = (line.get("text") or "").strip()
+            if not text or len(text) < 3:
+                continue
+            try:
+                ts = float(line.get("timestamp_seconds", line.get("timestamp", 0)) or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            score = _score_line(transcript_lower, transcript_normalized, text.lower().strip(), language)
+            if score >= min_score:
+                scored.append({"timestamp": ts, "match_score": int(score), "matched_line": text})
+
+        # Deterministic rank: best score first, then earliest timestamp.
+        scored.sort(key=lambda o: (-o["match_score"], o["timestamp"]))
+
+        # Deduplicate near-identical timestamps (same occurrence).
+        deduped = []
+        for occ in scored:
+            if all(abs(occ["timestamp"] - kept["timestamp"]) > dedupe_seconds for kept in deduped):
+                deduped.append(occ)
+
+        return deduped

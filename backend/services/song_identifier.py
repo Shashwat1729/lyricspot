@@ -1,31 +1,142 @@
 """
 Multi-strategy song identification service for ContinueMySong AI.
-Identifies songs from transcribed lyrics using multiple sources:
-- AudD Music Recognition API (best for lyrics-based text search)
-- Musixmatch (largest lyrics database, 14M+ songs, 80+ languages)
+Identifies songs from transcribed lyrics using multiple sources.
+
+Free sources (no API key required):
 - YouTube search (reliable for popular songs)
 - Genius search (good metadata and lyrics)
+- iTunes Search (good metadata)
+- Deezer search (free, no key, good metadata)
+- MusicBrainz (free, no key, strict 1 req/s rate limit — metadata validation)
+- DuckDuckGo HTML (catches what Genius API misses)
+
+Optional (API key required):
+- AudD Music Recognition API (best for lyrics-based text search)
+- Musixmatch (largest lyrics database, 14M+ songs, 80+ languages)
+
+Every strategy is fail-soft: any single source failing (timeout, 429,
+parse error) returns [] and never fails the pipeline.
 """
 
 import os
 import logging
 import re
+import threading
+import time
 import urllib.parse
 from typing import Optional, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 # Module-level executor for identification strategies
 _identify_executor = ThreadPoolExecutor(max_workers=4)
-
-import threading
 
 import requests
 from bs4 import BeautifulSoup
 from rapidfuzz import fuzz
 
 from utils.title_cleaner import clean_title
+from services.query_expansion import expand_queries
 
 logger = logging.getLogger(__name__)
+
+# Fixed strategy order — completion order must never determine ranking.
+STRATEGY_ORDER = (
+    "audd", "musixmatch", "youtube", "genius",
+    "itunes", "deezer", "musicbrainz", "duckduckgo",
+)
+
+
+class _RateLimiter:
+    """Minimal per-host rate limiter (fail-soft, thread-safe).
+
+    Enforces a minimum interval between calls per key by sleeping the
+    calling thread. Never raises: on clock issues it simply proceeds.
+    """
+
+    def __init__(self, min_interval_ms: dict[str, int] | None = None):
+        self._min_interval = min_interval_ms or {}
+        self._last_call: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, key: str) -> None:
+        interval = self._min_interval.get(key, 0) / 1000.0
+        if interval <= 0:
+            return
+        try:
+            with self._lock:
+                now = time.monotonic()
+                last = self._last_call.get(key, 0.0)
+                delay = interval - (now - last)
+                if delay > 0:
+                    time.sleep(delay)
+                self._last_call[key] = time.monotonic()
+        except Exception:
+            pass
+
+
+def canonical_key(song: str, artist: str) -> tuple[str, str]:
+    """Deterministic dedup key for a candidate."""
+    song_key = " ".join((song or "").lower().split())
+    artist_key = " ".join((artist or "").lower().split())
+    return (song_key, artist_key)
+
+
+def merge_candidates(
+    jobs_results: list[tuple[str, str, list]],
+    max_results: int = 5,
+) -> list:
+    """Merge per-strategy results deterministically.
+
+    Args:
+        jobs_results: Ordered list of (strategy, variant, results).
+        max_results: Cap on returned candidates.
+
+    Returns:
+        Merged candidates sorted by (-confidence, song, artist, strategy),
+        each with `sources` (all producing strategies) and `matched_variant`.
+    """
+    merged: dict[tuple[str, str], dict] = {}
+    for strategy, variant, results in jobs_results:
+        for r in results or []:
+            song = (r.get("song") or "").strip()
+            if not song:
+                continue
+            artist = (r.get("artist") or "").strip()
+            key = canonical_key(song, artist)
+            entry = merged.get(key)
+            if entry is None:
+                merged[key] = {
+                    "song": song,
+                    "artist": artist,
+                    "confidence": int(r.get("confidence", 0)),
+                    "strategy": strategy,
+                    "sources": [strategy],
+                    "matched_variant": variant,
+                }
+            else:
+                if strategy not in entry["sources"]:
+                    entry["sources"].append(strategy)
+                if int(r.get("confidence", 0)) > entry["confidence"]:
+                    entry["confidence"] = int(r.get("confidence", 0))
+                    entry["strategy"] = strategy
+                    entry["matched_variant"] = variant
+
+    candidates = list(merged.values())
+    for c in candidates:
+        c["sources"] = sorted(
+            c["sources"],
+            key=lambda s: STRATEGY_ORDER.index(s) if s in STRATEGY_ORDER else 99,
+        )
+
+    candidates.sort(
+        key=lambda x: (
+            -int(x.get("confidence", 0)),
+            x.get("song", "").lower(),
+            x.get("artist", "").lower(),
+            x.get("strategy", ""),
+        )
+    )
+    return candidates[:max_results]
 
 
 class SongIdentifier:
@@ -59,6 +170,17 @@ class SongIdentifier:
         # Optional API keys for enhanced identification
         self._audd_token = os.getenv("AUDD_API_TOKEN", "")
         self._musixmatch_key = os.getenv("MUSIXMATCH_API_KEY", "")
+        # Per-host rate limits (ms). MusicBrainz requires >=1000ms.
+        self._rate_limiter = _RateLimiter({
+            "musicbrainz": 1100,
+            "genius": 250,
+            "youtube": 250,
+            "itunes": 250,
+            "deezer": 250,
+            "duckduckgo": 500,
+            "musixmatch": 500,
+            "audd": 250,
+        })
 
     @property
     def _session(self) -> requests.Session:
@@ -72,64 +194,73 @@ class SongIdentifier:
     def identify_multiple(self, transcript: str, max_results: int = 5) -> list:
         """
         Return multiple candidate songs from all strategies.
-        Never returns empty — always provides at least one result.
+
+        The transcript is treated as an uncertain sensor reading: it is
+        normalized and expanded into a small set of query variants, and
+        query-based strategies (YouTube/Genius/iTunes) fan out across those
+        variants. Candidates are merged deterministically by canonical
+        (song, artist) key, tracking every distinct strategy that produced
+        them as `sources`. `confidence` here is a *search prior* only —
+        the real score comes from lyric verification downstream.
+
         Runs search strategies in parallel for speed.
-        
+
         Args:
             transcript: Transcribed lyrics text
             max_results: Maximum number of results to return
-            
+
         Returns:
-            List of dicts with song, artist, confidence, strategy
+            List of dicts with song, artist, confidence (search prior),
+            strategy (first producing strategy, for compatibility),
+            sources (all producing strategies), and matched_variant.
         """
         if not transcript or len(transcript.strip()) < 3:
             return []
-        
-        search_query = self._prepare_search_query(transcript)
-        candidates = []
-        seen = set()  # Deduplicate by (song_lower, artist_lower)
-        
-        # Run all search strategies in parallel for speed
-        futures = {}
+
+        variants = expand_queries(transcript)
+        if not variants:
+            return []
+        base_query = variants[0]
+
+        # Submit in fixed strategy order; await in the same order so
+        # thread completion order never affects ranking (deterministic).
+        jobs: list[tuple[str, str]] = []  # (strategy, variant)
+        futures: dict[tuple[str, str], object] = {}
         executor = _identify_executor
-        # Strategy 1: AudD (only if token is active)
+
+        def _submit(strategy: str, variant: str, fn, *args):
+            futures[(strategy, variant)] = executor.submit(fn, *args)
+            jobs.append((strategy, variant))
+
+        # Transcript-based strategies run once on the raw transcript.
         if self._audd_token:
-            futures[executor.submit(self._audd_lyrics_search, transcript)] = "audd"
-        
-        # Strategy 2: Musixmatch (only with valid API key)
+            _submit("audd", transcript, self._audd_lyrics_search, transcript)
         if self._musixmatch_key:
-            futures[executor.submit(self._musixmatch_search, search_query, transcript)] = "musixmatch"
-        
-        # Strategy 3: YouTube (free, always available)
-        futures[executor.submit(self._youtube_search_multiple, search_query, transcript)] = "youtube"
-        
-        # Strategy 4: Genius
-        futures[executor.submit(self._genius_search_multiple, search_query, transcript)] = "genius"
-        
-        # Strategy 5: iTunes Search (free, no key, good metadata)
-        futures[executor.submit(self._itunes_search, search_query, transcript)] = "itunes"
-        
-        # Strategy 6: DuckDuckGo site:genius.com (catches what Genius API misses)
-        futures[executor.submit(self._duckduckgo_search, transcript)] = "duckduckgo"
-        
-        for future in as_completed(futures):
-            strategy = futures[future]
+            _submit("musixmatch", transcript, self._musixmatch_search, base_query, transcript)
+        _submit("duckduckgo", transcript, self._duckduckgo_search, transcript)
+
+        # Query-based strategies fan out across expansion variants.
+        for variant in variants:
+            _submit("youtube", variant, self._youtube_search_multiple, variant, transcript)
+            _submit("genius", variant, self._genius_search_multiple, variant, transcript)
+            _submit("itunes", variant, self._itunes_search, variant, transcript)
+            _submit("deezer", variant, self._deezer_search, variant, transcript)
+        # MusicBrainz is strict 1 req/s: run once on the base query as
+        # metadata validation, not per variant.
+        _submit("musicbrainz", base_query, self._musicbrainz_search, base_query, transcript)
+
+        # Await in fixed submission order (not completion order) so
+        # ranking is deterministic regardless of thread scheduling.
+        jobs_results: list[tuple[str, str, list]] = []
+        for strategy, variant in jobs:
             try:
-                results = future.result()
+                results = futures[(strategy, variant)].result()
             except Exception as e:
                 logger.debug(f"Strategy '{strategy}' failed: {e}")
                 results = []
-            for r in results:
-                key = (r["song"].lower(), r["artist"].lower())
-                if key not in seen:
-                    r["strategy"] = strategy
-                    candidates.append(r)
-                    seen.add(key)
-        
-        # Sort by confidence
-        candidates.sort(key=lambda x: x.get("confidence", 0), reverse=True)
-        
-        return candidates[:max_results]
+            jobs_results.append((strategy, variant, results or []))
+
+        return merge_candidates(jobs_results, max_results)
     
     def _audd_lyrics_search(self, transcript: str) -> list:
         """
@@ -138,6 +269,7 @@ class SongIdentifier:
         Best accuracy for lyrics-to-song matching.
         """
         try:
+            self._rate_limiter.wait("audd")
             url = "https://api.audd.io/findLyrics/"
             params = {"q": transcript}
             if self._audd_token:
@@ -190,6 +322,7 @@ class SongIdentifier:
             # Try with API key if available
             api_key = self._musixmatch_key
             
+            self._rate_limiter.wait("musixmatch")
             # Search by lyrics content
             params = {
                 "apikey": api_key,
@@ -247,6 +380,7 @@ class SongIdentifier:
     def _genius_search_multiple(self, query: str, original_transcript: str) -> list:
         """Search Genius and return multiple results."""
         try:
+            self._rate_limiter.wait("genius")
             encoded_query = urllib.parse.quote(query)
             url = f"https://genius.com/api/search?q={encoded_query}"
             
@@ -295,6 +429,7 @@ class SongIdentifier:
             if not safe_query:
                 return self._youtube_search_multiple_fallback(query, original_transcript)
             search_query = f"ytsearch5:{safe_query} lyrics"
+            self._rate_limiter.wait("youtube")
             ytdlp_timeout = min(int(os.getenv("YTDLP_TIMEOUT", "5")), 15)
             # Safe: no shell=True, args passed as list — no shell injection possible
             result = subprocess.run(
@@ -391,6 +526,7 @@ class SongIdentifier:
     def _itunes_search(self, query: str, original_transcript: str) -> list:
         """Search iTunes Store (free, no API key, good metadata)."""
         try:
+            self._rate_limiter.wait("itunes")
             params = {
                 "term": query,
                 "media": "music",
@@ -420,7 +556,78 @@ class SongIdentifier:
         except Exception as e:
             logging.getLogger(__name__).debug(f"iTunes search error: {e}")
             return []
-    
+
+    def _throttled_get(self, rate_key: str, url: str, **kwargs) -> requests.Response:
+        """GET with per-host rate limiting. Raises on HTTP/network errors."""
+        self._rate_limiter.wait(rate_key)
+        return self._session.get(url, **kwargs)
+
+    def _deezer_search(self, query: str, original_transcript: str) -> list:
+        """Search Deezer API (free, no key, good metadata). Fail-soft."""
+        try:
+            response = self._throttled_get(
+                "deezer",
+                "https://api.deezer.com/search",
+                params={"q": query, "limit": 5},
+                timeout=self.REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+            results = []
+            for item in (data.get("data") or [])[:5]:
+                title = (item.get("title") or "").strip()
+                artist = ((item.get("artist") or {}).get("name") or "").strip()
+                if not title:
+                    continue
+                results.append({
+                    "song": title,
+                    "artist": artist,
+                    "confidence": self._search_prior(original_transcript, title, artist or title),
+                })
+            return results
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Deezer search error: {e}")
+            return []
+
+    def _musicbrainz_search(self, query: str, original_transcript: str) -> list:
+        """Search MusicBrainz recordings (free, no key, 1 req/s limit).
+
+        Used as metadata validation rather than a primary source: recording
+        titles/artists are canonical, so a match here is strong evidence the
+        song exists even when lyric coverage is thin. Fail-soft on 429/5xx.
+        """
+        try:
+            response = self._throttled_get(
+                "musicbrainz",
+                "https://musicbrainz.org/ws/2/recording/",
+                params={"query": f'recording:"{query}"', "fmt": "json", "limit": 5},
+                headers={"User-Agent": f"LyricSpot/1.0 (research project; contact: admin@example.com)"},
+                timeout=(3, 6),
+            )
+            if response.status_code == 429:
+                logger.debug("MusicBrainz rate limited (429), skipping")
+                return []
+            response.raise_for_status()
+            data = response.json()
+            results = []
+            for item in (data.get("recordings") or [])[:5]:
+                title = (item.get("title") or "").strip()
+                artists = item.get("artist-credit") or []
+                artist = ""
+                if artists and isinstance(artists[0], dict):
+                    artist = ((artists[0].get("artist") or {}).get("name") or "").strip()
+                if not title:
+                    continue
+                results.append({
+                    "song": title,
+                    "artist": artist,
+                    "confidence": self._search_prior(original_transcript, title, artist or title),
+                })
+            return results
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"MusicBrainz search error: {e}")
+            return []
+
     def _prepare_search_query(self, transcript: str) -> str:
         """
         Prepare transcript for search query.
@@ -603,10 +810,20 @@ class SongIdentifier:
         song_title: str,
         artist_name: str
     ) -> int:
+        """Backward-compatible alias for _search_prior (kept for existing callers/tests)."""
+        return self._search_prior(transcript, song_title, artist_name)
+
+    def _search_prior(
+        self,
+        transcript: str,
+        song_title: str,
+        artist_name: str
+    ) -> int:
         """
-        Calculate initial search confidence score for a match.
-        
-        This is a preliminary score based on title/transcript overlap.
+        Calculate the initial *search prior* for a match.
+
+        This is deliberately weak: the user sings lyrics, not the song title,
+        so title/transcript overlap must never dominate lyric verification.
         The real confidence is determined later by lyrics matching.
         """
         transcript_lower = transcript.lower().strip()
@@ -647,7 +864,8 @@ class SongIdentifier:
             # Use quoted lyrics search for better precision
             snippet = transcript[:60].strip()
             query = f'"{snippet}" lyrics song'
-            
+
+            self._rate_limiter.wait("duckduckgo")
             response = self._session.get(
                 "https://html.duckduckgo.com/html/",
                 params={"q": query},

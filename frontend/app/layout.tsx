@@ -20,10 +20,14 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Shashwat Bajpai", url: "https://github.com/Shashwat1729" }],
   creator: "Shashwat Bajpai",
+  // NOTE: absolute Pages subpath is intentional. Next.js does not apply
+  // basePath to metadata icon/manifest URLs, and relative URLs break on
+  // nested routes in the static export. Local dev serves /lyricspot/*
+  // identically (same Next server), so this works in both environments.
   icons: {
-    icon: "/favicon.svg",
+    icon: "/lyricspot/favicon.svg",
   },
-  manifest: "/manifest.json",
+  manifest: "/lyricspot/manifest.json",
   openGraph: {
     title: "ContinueMySong - Find Any Song by Singing",
     description: "Sing a lyric and find the song instantly. Powered by local AI.",
