@@ -105,7 +105,7 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
           window.location.hostname !== "127.0.0.1";
         setError(
           isStaticDemo
-            ? "Voice identification needs the backend server, which isn't running on this demo site. Try the Lyrics tab instead — it works without a backend."
+            ? "Voice identification needs the backend server, which isn't reachable from here. Open Backend settings (top right) to point at your server, or try the Lyrics tab — it works without one."
             : "Cannot reach the server. Please ensure the backend is running on port 8000."
         );
       } else {
@@ -189,11 +189,20 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
   const stopRecording = useCallback(() => {
     stopTimer();
     if (recordingTimeRef.current < MIN_DURATION) {
-      setError("Please record at least 3 seconds of singing.");
+      // Show the error state (not idle) so the message actually renders —
+      // otherwise the UI snaps back to the mic button and it looks like
+      // the recording was silently discarded.
+      setError("That clip was too short — please sing for at least 3 seconds.");
       cancelledRef.current = true;
       stopTracks();
-      mediaRecorderRef.current?.stop();
-      setState("idle");
+      try {
+        if (mediaRecorderRef.current?.state !== "inactive") {
+          mediaRecorderRef.current?.stop();
+        }
+      } catch {
+        // Already stopped — nothing to clean up.
+      }
+      setState("error");
       return;
     }
     mediaRecorderRef.current?.stop();
@@ -231,6 +240,7 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
     <>
       {(state === "uploading" || state === "processing") && (
         <motion.button
+          type="button"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           onClick={handleCancel}
@@ -259,6 +269,7 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
               </div>
 
               <motion.button
+                type="button"
                 onClick={startRecording}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.97 }}
@@ -317,6 +328,7 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
               <AnimatedWaveform isActive={true} />
 
               <motion.button
+                type="button"
                 onClick={stopRecording}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -362,6 +374,7 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
               )}
 
               <motion.button
+                type="button"
                 onClick={handleRetry}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}

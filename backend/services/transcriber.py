@@ -35,22 +35,22 @@ class TranscriptionService:
     
     Uses lazy singleton pattern - model is loaded on first transcription request.
     """
-    
+
     _instance: Optional["TranscriptionService"] = None
     _model = None  # Class-level model cache (shared across instances)
-    
+
     def __new__(cls) -> "TranscriptionService":
         """Singleton pattern implementation."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         """Initialize transcription service."""
         # Only set model name on first initialization
         if not hasattr(self, '_model_name'):
             self._model_name = os.getenv("WHISPER_MODEL", "base")
-    
+
     def _load_model(self):
         """
         Lazy load the Whisper model.
@@ -65,7 +65,7 @@ class TranscriptionService:
             self._model = whisper.load_model(self._model_name)
             logging.getLogger(__name__).info("Whisper model loaded successfully")
         return self._model
-    
+
     def transcribe(self, wav_path: str) -> str:
         """
         Transcribe audio file to text.
@@ -247,7 +247,7 @@ class TranscriptionService:
         for artifact in artifacts:
             text = text.replace(artifact, "")
         return " ".join(text.split()).strip()
-    
+
     def _clean_transcription(self, text: str) -> str:
         """
         Clean up common Whisper transcription artifacts.
@@ -259,7 +259,7 @@ class TranscriptionService:
             Cleaned text
         """
         return self._clean_static(text)
-    
+
     def transcribe_with_timestamps(self, wav_path: str) -> list:
         """
         Transcribe audio with word-level timestamps.
@@ -271,13 +271,13 @@ class TranscriptionService:
             List of segments with timestamps: [{"start": float, "end": float, "text": str}, ...]
         """
         wav_path = Path(wav_path)
-        
+
         if not wav_path.exists():
             raise FileNotFoundError(f"Audio file not found: {wav_path}")
-        
+
         try:
             model = self._load_model()
-            
+
             result = model.transcribe(
                 str(wav_path),
                 fp16=False,
@@ -285,7 +285,7 @@ class TranscriptionService:
                 task="transcribe",
                 word_timestamps=True
             )
-            
+
             segments = []
             for segment in result.get("segments", []):
                 segments.append({
@@ -293,9 +293,9 @@ class TranscriptionService:
                     "end": segment.get("end", 0),
                     "text": self._clean_transcription(segment.get("text", ""))
                 })
-            
+
             return segments
-            
+
         except Exception as e:
             logging.getLogger(__name__).info(f"Transcription with timestamps error: {e}")
             return []

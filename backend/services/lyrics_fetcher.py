@@ -26,25 +26,25 @@ class LyricsFetcher:
     
     LRCLIB provides free synced lyrics (LRC format) without API key.
     """
-    
+
     # LRCLIB API base URL
     API_BASE = "https://lrclib.net/api"
-    
+
     # Request timeout in seconds (reduced to avoid blocking when LRCLIB is down)
     REQUEST_TIMEOUT = 3
-    
+
     # Circuit breaker: skip LRCLIB after N consecutive failures
     _lrclib_failures = 0
     _lrclib_circuit_open_until = 0.0
     _lrclib_lock = threading.Lock()
     _LRCLIB_MAX_FAILURES = 1
     _LRCLIB_CIRCUIT_COOLDOWN = 120  # seconds - longer cooldown since full outages last minutes
-    
+
     # User agent for requests (LRCLIB recommends identifying your app)
     USER_AGENT = "ContinueMySong/1.0 (https://github.com/continuemysong-ai)"
     # Browser-like UA for Genius scraping (they block bot UAs)
     BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    
+
     def __init__(self):
         """Initialize lyrics fetcher."""
         self._session_local = threading.local()
@@ -67,7 +67,7 @@ class LyricsFetcher:
             s.headers.update(self._session_headers)
             self._session_local.session = s
         return self._session_local.session
-    
+
     def fetch_synced_lyrics(
         self,
         song: str,
@@ -97,27 +97,27 @@ class LyricsFetcher:
 
         # Try LRCLIB first (free, no rate limits)
         lyrics_data = self._search_lyrics(song, artist)
-        
+
         if not lyrics_data:
             lyrics_data = self._search_lyrics(song, "")
-        
+
         if lyrics_data:
             synced_lyrics = lyrics_data.get("syncedLyrics")
             if synced_lyrics:
                 result = self.parse_lrc(synced_lyrics)
                 self._store_synced_cache(cache_key, result)
                 return result
-        
+
         # Fallback to Musixmatch (better for non-English/Bollywood, requires API key)
         if self._musixmatch_key:
             mxm_lyrics = self._musixmatch_synced_lyrics(song, artist)
             if mxm_lyrics:
                 self._store_synced_cache(cache_key, mxm_lyrics)
                 return mxm_lyrics
-        
+
         self._store_synced_cache(cache_key, None)
         return None
-    
+
     def _store_synced_cache(self, key: str, value: Any) -> None:
         """Store result in synced lyrics cache (bounded)."""
         with self._cache_lock:
@@ -156,18 +156,18 @@ class LyricsFetcher:
             params = {"track_name": song}
             if artist:
                 params["artist_name"] = artist
-            
+
             url = f"{self.API_BASE}/search"
-            
+
             response = self._session.get(url, params=params, timeout=self.REQUEST_TIMEOUT,
                                          headers={"User-Agent": "ContinueMySong/1.0 (https://github.com/continuemysong)"})
             response.raise_for_status()
-            
+
             results = response.json()
-            
+
             if not results or not isinstance(results, list):
                 return None
-            
+
             # Find best match with synced lyrics
             with LyricsFetcher._lrclib_lock:
                 LyricsFetcher._lrclib_failures = 0  # Reset on success
@@ -176,17 +176,17 @@ class LyricsFetcher:
                     # Verify it's a reasonable match
                     result_title = result.get("trackName", "").lower()
                     result_artist = result.get("artistName", "").lower()
-                    
+
                     if self._fuzzy_match(song, result_title):
                         return result
-            
+
             # Return first result with synced lyrics even if not perfect match
             for result in results:
                 if result.get("syncedLyrics"):
                     return result
-            
+
             return None
-            
+
         except requests.RequestException as e:
             with LyricsFetcher._lrclib_lock:
                 LyricsFetcher._lrclib_failures += 1
@@ -196,15 +196,15 @@ class LyricsFetcher:
         except (ValueError, KeyError) as e:
             logging.getLogger(__name__).warning(f"LRCLIB response parsing error: {e}")
             return None
-    
+
     def _fuzzy_match(self, s1: str, s2: str) -> bool:
         """Simple fuzzy match - check if most words match."""
         words1 = set(s1.lower().split())
         words2 = set(s2.lower().split())
-        
+
         if not words1 or not words2:
             return False
-        
+
         common = words1 & words2
         return len(common) >= min(len(words1), len(words2)) * 0.5
 
@@ -215,7 +215,7 @@ class LyricsFetcher:
         """
         try:
             base_url = "https://api.musixmatch.com/ws/1.1"
-            
+
             # First find the track
             params = {
                 "apikey": self._musixmatch_key,
@@ -225,7 +225,7 @@ class LyricsFetcher:
                 "page_size": 3,
                 "page": 1,
             }
-            
+
             response = self._session.get(
                 f"{base_url}/track.search",
                 params=params,
@@ -233,33 +233,33 @@ class LyricsFetcher:
             )
             response.raise_for_status()
             data = response.json()
-            
+
             track_list = (
                 data.get("message", {})
                 .get("body", {})
             )
-            
+
             # Handle 401 or empty body (returned as [] instead of {})
             if isinstance(track_list, list) or not track_list:
                 return None
-            
+
             track_list = track_list.get("track_list", [])
-            
+
             if not track_list:
                 return None
-            
+
             # Get the first track's subtitles (synced lyrics)
             track_id = track_list[0].get("track", {}).get("track_id")
             if not track_id:
                 return None
-            
+
             # Fetch subtitles for this track
             sub_params = {
                 "apikey": self._musixmatch_key,
                 "track_id": track_id,
                 "subtitle_format": "lrc",
             }
-            
+
             sub_response = self._session.get(
                 f"{base_url}/track.subtitle.get",
                 params=sub_params,
@@ -267,23 +267,23 @@ class LyricsFetcher:
             )
             sub_response.raise_for_status()
             sub_data = sub_response.json()
-            
+
             subtitle_body = (
                 sub_data.get("message", {})
                 .get("body", {})
                 .get("subtitle", {})
                 .get("subtitle_body", "")
             )
-            
+
             if subtitle_body:
                 return self.parse_lrc(subtitle_body)
-            
+
             return None
-            
+
         except Exception:
             logging.getLogger(__name__).warning("Musixmatch lyrics error (details suppressed to protect API key)")
             return None
-    
+
     def parse_lrc(self, lrc_string: str) -> List[Dict[str, Any]]:
         """
         Parse LRC format lyrics to list of timestamped lines.
@@ -298,22 +298,22 @@ class LyricsFetcher:
         """
         if not lrc_string:
             return []
-        
+
         lines = []
-        
+
         # LRC timestamp pattern: [mm:ss.xx] or [mm:ss]
         pattern = r'\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\](.*)$'
-        
+
         for line in lrc_string.split('\n'):
             line = line.strip()
             if not line:
                 continue
-            
+
             match = re.match(pattern, line)
             if match:
                 minutes = int(match.group(1))
                 seconds = int(match.group(2))
-                
+
                 # Handle milliseconds (may be 2 or 3 digits)
                 ms_str = match.group(3)
                 if ms_str:
@@ -322,25 +322,25 @@ class LyricsFetcher:
                     milliseconds = int(ms_str)
                 else:
                     milliseconds = 0
-                
+
                 text = match.group(4).strip()
-                
+
                 # Skip empty lines or metadata
                 if not text or text.startswith('['):
                     continue
-                
+
                 timestamp_seconds = minutes * 60 + seconds + milliseconds / 1000
-                
+
                 lines.append({
                     "timestamp_seconds": round(timestamp_seconds, 3),
                     "text": text
                 })
-        
+
         # Sort by timestamp
         lines.sort(key=lambda x: x["timestamp_seconds"])
-        
+
         return lines
-    
+
     def fetch_plain_lyrics(self, song: str, artist: str) -> Optional[str]:
         """
         Fetch plain (non-synced) lyrics for a song.
@@ -353,11 +353,11 @@ class LyricsFetcher:
                 if artist:
                     params["artist_name"] = artist
                 url = f"{self.API_BASE}/search"
-                
+
                 response = self._session.get(url, params=params, timeout=self.REQUEST_TIMEOUT,
                                              headers={"User-Agent": "ContinueMySong/1.0 (https://github.com/continuemysong)"})
                 response.raise_for_status()
-                
+
                 results = response.json()
                 with LyricsFetcher._lrclib_lock:
                     LyricsFetcher._lrclib_failures = 0
@@ -403,20 +403,20 @@ class LyricsFetcher:
             query = f"{song} {artist}" if artist else song
             encoded_query = urllib.parse.quote(query)
             search_url = f"https://genius.com/api/search?q={encoded_query}"
-            
+
             response = self._session.get(search_url, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
-            
+
             data = response.json()
             hits = data.get("response", {}).get("hits", [])
             if not hits:
                 return None
-            
+
             # Get the lyrics page URL
             lyrics_path = hits[0].get("result", {}).get("path", "")
             if not lyrics_path:
                 return None
-            
+
             # SSRF protection: validate path is a safe Genius lyrics path
             decoded_lyrics_path = urllib.parse.unquote(lyrics_path)
             if not decoded_lyrics_path.startswith("/") or not re.match(r'^/[a-zA-Z0-9][a-zA-Z0-9\-]*(/[a-zA-Z0-9][a-zA-Z0-9\-]*)*$', decoded_lyrics_path):
@@ -426,7 +426,7 @@ class LyricsFetcher:
             if any(pattern in lyrics_path for pattern in suspicious_patterns) or any(pattern in decoded_lyrics_path for pattern in suspicious_patterns):
                 logging.getLogger(__name__).warning(f"Suspicious Genius path rejected: {lyrics_path[:50]}")
                 return None
-            
+
             lyrics_url = f"https://genius.com{decoded_lyrics_path}"
             page_headers = {
                 "User-Agent": self.BROWSER_UA,
@@ -435,7 +435,7 @@ class LyricsFetcher:
             }
             page_resp = self._session.get(lyrics_url, timeout=(5, 10), stream=True, headers=page_headers)
             page_resp.raise_for_status()
-            
+
             # Cap response size to 1MB and wall-clock to 30s
             content_chunks = []
             bytes_read = 0
@@ -447,23 +447,23 @@ class LyricsFetcher:
                     break
             page_resp.close()
             content = b''.join(content_chunks)
-            
+
             # Extract lyrics from the page (between Lyrics__Container divs)
             soup = BeautifulSoup(content, "html.parser")
-            
+
             lyrics_divs = soup.find_all("div", attrs={"data-lyrics-container": "true"})
             if not lyrics_divs:
                 return None
-            
+
             lyrics_text = ""
             for div in lyrics_divs:
                 # Replace <br> with newlines
                 for br in div.find_all("br"):
                     br.replace_with("\n")
                 lyrics_text += div.get_text() + "\n"
-            
+
             return lyrics_text.strip() if lyrics_text.strip() else None
-            
+
         except Exception as e:
             logging.getLogger(__name__).warning(f"Genius lyrics scrape error: {e}")
             return None
@@ -482,18 +482,18 @@ class LyricsFetcher:
         Returns:
             Dict with estimated timestamp and confidence, or None
         """
-        
+
         if not transcript or not plain_lyrics:
             return None
-        
+
         lines = [l.strip() for l in plain_lyrics.split("\n") if l.strip()]
         if not lines:
             return None
-        
+
         transcript_lower = transcript.lower().strip()
         best_score = 0
         best_line_idx = 0
-        
+
         for i, line in enumerate(lines):
             line_lower = line.lower().strip()
             if len(line_lower) < 3:
@@ -505,14 +505,14 @@ class LyricsFetcher:
             if score > best_score:
                 best_score = score
                 best_line_idx = i
-        
+
         if best_score < 30:
             return None
-        
+
         # Estimate timestamp: position in lyrics × song duration
         position_ratio = best_line_idx / max(len(lines), 1)
         estimated_timestamp = position_ratio * avg_duration
-        
+
         return {
             "timestamp": round(estimated_timestamp, 1),
             "confidence": min(best_score, 70),  # Cap at 70 since it's estimated

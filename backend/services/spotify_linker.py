@@ -209,7 +209,7 @@ class SpotifyLinker:
             track_id = fetched_id
         if track_id:
             return f"spotify:track:{track_id}"
-        
+
         query = f"{song} {artist}" if artist else song
         return f"spotify:search:{urllib.parse.quote(query)}"
 

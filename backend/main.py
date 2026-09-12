@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 logger = logging.getLogger(__name__)
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -404,7 +404,7 @@ def _process_candidate(
                     timestamp = estimate["timestamp"]
                     lyrics_match_score = estimate["confidence"]
                     timestamp_estimated = True
-        
+
         # If we fetched lyrics but transcript was NOT found in them → negative signal
         if not exact_lyrics_match and lyrics_match_score is None:
             # We tried but couldn't confirm lyrics contain the transcript
@@ -719,7 +719,7 @@ async def upload_audio(request: Request, file: UploadFile = File(...)):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Unhandled error")
         return JSONResponse(
             status_code=500,
@@ -762,7 +762,7 @@ async def identify_text(request: Request, body: TextInput):
                 "results": [],
             },
         )
-    except Exception as e:
+    except Exception:
         logger.exception("Unhandled error")
         return JSONResponse(
             status_code=500,
@@ -823,7 +823,7 @@ async def identify_text_stream(request: Request, body: TextInput):
         for c in top_candidates:
             key = (c.get("song", "").lower().strip(), c.get("artist", "").lower().strip())
             c["source_count"] = len(_coverage_sse.get(key, {c.get("strategy", "unknown")}))
-        
+
         yield emit({
             "stage": "found",
             "message": f"Found {len(candidates)} candidates",

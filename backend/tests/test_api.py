@@ -1,7 +1,7 @@
 """Integration tests for API endpoints with mocked services."""
 import sys
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, ".")
 

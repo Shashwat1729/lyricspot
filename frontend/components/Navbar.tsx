@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Github, Music2, Star } from "lucide-react";
 import { motion } from "framer-motion";
+import { SettingsButton } from "./SettingsModal";
 
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -39,6 +40,7 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-4">
+          <SettingsButton />
           <a
             href="https://github.com/Shashwat1729/lyricspot"
             target="_blank"

@@ -4,7 +4,93 @@
 
 import axios from 'axios';
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+const API_BASE_OVERRIDE_KEY = 'lyricspot.apiBase';
+const DEFAULT_API_BASE = 'http://localhost:8000';
+
+/** Build-time default from env (baked into the static export). */
+function envApiBase(): string {
+  return (process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE).replace(/\/+$/, '');
+}
+
+function sanitizeApiBase(raw: string): string | null {
+  const cleaned = (raw || '').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/.+/.test(cleaned)) return null;
+  return cleaned;
+}
+
+/**
+ * Effective backend base URL.
+ * Priority: Settings override (localStorage) > build-time env > localhost.
+ * Read dynamically (not a module const) so the Settings modal takes
+ * effect immediately without a rebuild — essential on static hosts.
+ */
+export function getApiBase(): string {
+  if (typeof window !== 'undefined') {
+    try {
+      const override = window.localStorage.getItem(API_BASE_OVERRIDE_KEY);
+      if (override) {
+        const cleaned = sanitizeApiBase(override);
+        if (cleaned) return cleaned;
+      }
+    } catch {
+      // localStorage unavailable (private mode) — fall through to env default
+    }
+  }
+  return envApiBase();
+}
+
+/** Persist a custom backend URL (or null to reset to default). Returns false if invalid. */
+export function setApiBaseOverride(url: string | null): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (!url || !url.trim()) {
+      window.localStorage.removeItem(API_BASE_OVERRIDE_KEY);
+      return true;
+    }
+    const cleaned = sanitizeApiBase(url);
+    if (!cleaned) return false;
+    window.localStorage.setItem(API_BASE_OVERRIDE_KEY, cleaned);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Currently stored override, or null when using the default. */
+export function getApiBaseOverride(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(API_BASE_OVERRIDE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether requests go anywhere other than the build default. */
+export function isCustomApiBase(): boolean {
+  return getApiBaseOverride() !== null;
+}
+
+/** Quick backend reachability probe for the Settings "Test" button. */
+export async function checkBackendHealth(timeoutMs = 5000): Promise<{ ok: boolean; detail: string }> {
+  const base = getApiBase();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(base + '/health', { signal: controller.signal });
+    if (!res.ok) return { ok: false, detail: 'Server responded with status ' + res.status };
+    const data = await res.json().catch(() => ({}));
+    const model = (data as { whisper_model?: string }).whisper_model;
+    return { ok: true, detail: model ? 'Connected (Whisper model: ' + model + ')' : 'Connected' };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, detail: 'Timed out — is the backend running at ' + base + '?' };
+    }
+    return { ok: false, detail: 'Cannot reach ' + base + '. Check the URL and CORS settings.' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Single timestamp occurrence of the matched lyric (repeated choruses). */
 export interface LyricOccurrence {
@@ -78,7 +164,7 @@ export async function uploadAudio(audioBlob: Blob, signal?: AbortSignal): Promis
   formData.append('file', audioBlob, `recording.${ext}`);
 
   const response = await axios.post<ApiResponse>(
-    `${API_BASE}/upload`,
+    `${getApiBase()}/upload`,
     formData,
     {
       timeout: 60000, // 60s for Whisper processing
@@ -94,7 +180,7 @@ export async function uploadAudio(audioBlob: Blob, signal?: AbortSignal): Promis
  */
 export async function identifyLyrics(lyrics: string, signal?: AbortSignal): Promise<ApiResponse> {
   const response = await axios.post<ApiResponse>(
-    `${API_BASE}/identify`,
+    `${getApiBase()}/identify`,
     { lyrics },
     {
       headers: { 'Content-Type': 'application/json' },
@@ -144,7 +230,7 @@ export async function identifyLyricsStream(
   }
 
   try {
-  const response = await fetch(`${API_BASE}/identify/stream`, {
+  const response = await fetch(`${getApiBase()}/identify/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ lyrics }),
@@ -251,5 +337,5 @@ export async function submitFeedback(
   artist: string,
   action: 'up' | 'down'
 ): Promise<void> {
-  await axios.post(`${API_BASE}/feedback`, { query, song, artist, action });
+  await axios.post(`${getApiBase()}/feedback`, { query, song, artist, action });
 }
