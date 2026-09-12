@@ -6,6 +6,13 @@ import axios from 'axios';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
+/** Single timestamp occurrence of the matched lyric (repeated choruses). */
+export interface LyricOccurrence {
+  timestamp: number;
+  match_score: number;
+  matched_line: string;
+}
+
 /** Single song result from the backend */
 export interface SongResult {
   song: string;
@@ -19,9 +26,12 @@ export interface SongResult {
     matched: string;
     after: string[];
   } | null;
+  occurrences?: LyricOccurrence[];
+  ambiguous?: boolean;
   spotify_url: string;
   album_art?: string;
   strategy: string;
+  sources?: string[];
 }
 
 /** API response from /upload or /identify */
@@ -30,6 +40,10 @@ export interface ApiResponse {
   transcript: string;
   error?: string;
   results: SongResult[];
+  /** Backend confidence band: high = sure, uncertain = close call, low = weak. */
+  confidence_label?: 'high' | 'uncertain' | 'low';
+  /** Gap between top-1 and top-2 final confidence. */
+  margin?: number;
   // Backward-compat flat fields (top result)
   song?: string;
   artist?: string;

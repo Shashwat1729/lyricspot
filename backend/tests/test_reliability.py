@@ -1,5 +1,7 @@
 """Reliability tests: uncertainty preservation, query expansion, evidence ranking."""
+import os
 import sys
+import tempfile
 from unittest.mock import MagicMock
 
 sys.path.insert(0, ".")
@@ -15,7 +17,7 @@ import pytest
 
 from services.transcriber import TranscriptionService, TranscriptionResult
 from services.query_expansion import normalize_query, expand_queries, deduplicate_words
-from services.song_identifier import SongIdentifier, canonical_key, merge_candidates
+from services.song_identifier import SongIdentifier, merge_candidates
 from services.timestamp_matcher import TimestampMatcher
 
 
@@ -23,6 +25,13 @@ def _mock_model(payload):
     model = MagicMock()
     model.transcribe.return_value = payload
     return model
+
+
+def _wav_file():
+    f = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    f.write(b"fake")
+    f.close()
+    return f.name
 
 
 class TestTranscriptionResult:
@@ -36,10 +45,7 @@ class TestTranscriptionResult:
                 {"start": 2.0, "end": 4.0, "avg_logprob": -0.2, "no_speech_prob": 0.02, "text": "the other side"},
             ],
         })
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(b"fake")
-            path = f.name
+        path = _wav_file()
         try:
             result = svc.transcribe_result(path)
         finally:
@@ -54,10 +60,7 @@ class TestTranscriptionResult:
     def test_empty_result_is_zero_confidence(self):
         svc = TranscriptionService()
         svc._model = _mock_model({"text": "   ", "language": "en", "segments": []})
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(b"fake")
-            path = f.name
+        path = _wav_file()
         try:
             result = svc.transcribe_result(path)
         finally:
@@ -74,10 +77,7 @@ class TestTranscriptionResult:
                 {"start": 0.0, "end": 3.0, "avg_logprob": -0.5, "no_speech_prob": 0.95, "text": "you"},
             ],
         })
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(b"fake")
-            path = f.name
+        path = _wav_file()
         try:
             result = svc.transcribe_result(path)
         finally:
@@ -87,10 +87,7 @@ class TestTranscriptionResult:
     def test_missing_metadata_is_robust(self):
         svc = TranscriptionService()
         svc._model = _mock_model({"text": "hello"})
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(b"fake")
-            path = f.name
+        path = _wav_file()
         try:
             result = svc.transcribe_result(path)
         finally:
@@ -102,10 +99,7 @@ class TestTranscriptionResult:
         """Backward compatibility: transcribe() returns str."""
         svc = TranscriptionService()
         svc._model = _mock_model({"text": "hello world", "segments": []})
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(b"fake")
-            path = f.name
+        path = _wav_file()
         try:
             assert svc.transcribe(path) == "hello world"
         finally:

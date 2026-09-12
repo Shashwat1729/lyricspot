@@ -106,7 +106,7 @@ export default function Home() {
             ) : (
               <div ref={resultsRef}>
                 {result && result.results && (
-                  <ResultCard results={result.results} transcript={result.transcript} onTryAgain={handleReset} />
+                  <ResultCard results={result.results} transcript={result.transcript} onTryAgain={handleReset} confidenceLabel={result.confidence_label} />
                 )}
               </div>
             )}

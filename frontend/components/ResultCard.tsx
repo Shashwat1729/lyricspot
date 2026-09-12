@@ -17,6 +17,7 @@ interface ResultCardProps {
   results: SongResult[];
   transcript: string;
   onTryAgain: () => void;
+  confidenceLabel?: 'high' | 'uncertain' | 'low';
 }
 
 function ConfidenceRing({ confidence }: { confidence: number }) {
@@ -149,7 +150,7 @@ function LyricsContext({ context }: { context: { before: string[]; matched: stri
   );
 }
 
-export default function ResultCard({ results, transcript, onTryAgain }: ResultCardProps) {
+export default function ResultCard({ results, transcript, onTryAgain, confidenceLabel }: ResultCardProps) {
   const [showAll, setShowAll] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState<Record<number, "up" | "down">>({});
   const [showConfetti, setShowConfetti] = useState(false);
@@ -177,6 +178,14 @@ export default function ResultCard({ results, transcript, onTryAgain }: ResultCa
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}
         className="w-full max-w-2xl mx-auto space-y-4 relative">
         <div className="relative overflow-hidden rounded-xl"><Confetti trigger={showConfetti} /></div>
+
+        {confidenceLabel === "uncertain" && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
+            className="rounded-xl px-5 py-3.5 bg-yellow-500/[0.06] border border-yellow-500/20">
+            <p className="text-yellow-200/90 text-sm font-medium">Close call — not 100% sure</p>
+            <p className="text-gray-400 text-xs mt-0.5">These are the closest matches. Sing a little longer for a surer result.</p>
+          </motion.div>
+        )}
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           className="glass-premium rounded-xl px-5 py-4">
@@ -238,6 +247,24 @@ export default function ResultCard({ results, transcript, onTryAgain }: ResultCa
                   </div>
 
                   {result.lyrics_context && <LyricsContext context={result.lyrics_context} />}
+
+                  {index === 0 && result.ambiguous && result.occurrences && result.occurrences.length > 1 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-wider text-gray-500">Also heard at</span>
+                      {result.occurrences.slice(0, 3).map((occ) => {
+                        const occTs = Math.floor(occ.timestamp / 60) + ":" + String(Math.floor(occ.timestamp % 60)).padStart(2, "0");
+                        const occLink = trackId
+                          ? "https://open.spotify.com/track/" + trackId + "?t=" + Math.floor(occ.timestamp)
+                          : spotifyDeepLink;
+                        return (
+                          <a key={occ.timestamp} href={occLink} target="_blank" rel="noopener noreferrer"
+                            className="text-[11px] font-mono text-green-400/90 bg-green-500/[0.06] hover:bg-green-500/[0.12] border border-green-500/15 px-2 py-0.5 rounded-full transition-colors">
+                            {occTs}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {trackId && index === 0 && <SpotifyEmbed trackId={trackId} timestamp={result.timestamp} />}
 

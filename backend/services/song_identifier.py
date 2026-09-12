@@ -601,7 +601,7 @@ class SongIdentifier:
                 "musicbrainz",
                 "https://musicbrainz.org/ws/2/recording/",
                 params={"query": f'recording:"{query}"', "fmt": "json", "limit": 5},
-                headers={"User-Agent": f"LyricSpot/1.0 (research project; contact: admin@example.com)"},
+                headers={"User-Agent": "LyricSpot/1.0 (research project; contact: admin@example.com)"},
                 timeout=(3, 6),
             )
             if response.status_code == 429:
