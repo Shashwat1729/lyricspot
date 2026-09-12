@@ -11,12 +11,14 @@ type RecorderState = "idle" | "recording" | "uploading" | "processing" | "error"
 interface MicRecorderProps {
   onResult: (data: ApiResponse) => void;
   onLoadingChange?: (loading: boolean, status?: "uploading" | "processing") => void;
+  onError?: (message: string, isBackendUnreachable: boolean) => void;
+  onRetry?: () => void;
 }
 
 const MAX_DURATION = 15;
 const MIN_DURATION = 3;
 
-export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
+export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: MicRecorderProps) {
   const [state, setState] = useState<RecorderState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -95,23 +97,40 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
       if (abortController.signal.aborted) return;
       const message = err instanceof Error ? err.message : "Failed to process audio.";
       if (message.includes("timeout") || message.includes("ECONNABORTED")) {
-        setError("Request timed out. The server may be loading the AI model for the first time.");
+        const msg = "Request timed out. The server may be loading the AI model for the first time.";
+        if (onError) { onError(msg, false); setState("idle"); }
+        else { setError(msg); setState("error"); }
       } else if (message.includes("Network Error") || message.includes("ERR_NETWORK")) {
-        // On the static GitHub Pages demo there is no backend to start —
-        // guide visitors to the working Lyrics-tab demo instead.
         const isStaticDemo =
           typeof window !== "undefined" &&
           window.location.hostname !== "localhost" &&
           window.location.hostname !== "127.0.0.1";
-        setError(
-          isStaticDemo
-            ? "Voice identification needs the backend server, which isn't reachable from here. Open Backend settings (top right) to point at your server, or try the Lyrics tab — it works without one."
-            : "Cannot reach the server. Please ensure the backend is running on port 8000."
-        );
+        const unreachable = !!isStaticDemo;
+        const msg = unreachable
+          ? "Voice identification needs the backend server, which isn't reachable from here. Open Backend settings (top right) to point at your server, or try the Lyrics tab — it works without one."
+          : "Cannot reach the server. Please ensure the backend is running on port 8000.";
+        // Lift to the page so the message survives the LoadingOverlay swap
+        // (parent hides this component while loading, so local error state
+        // would be wiped on remount and look like a reset).
+        if (onError) {
+          onError(msg, unreachable);
+          setState("idle");
+        } else {
+          setError(msg);
+          setState("error");
+        }
       } else {
-        setError(message);
+        const msg = message;
+        if (onError) {
+          onError(msg, false);
+          setState("idle");
+        } else {
+          setError(msg);
+          setState("error");
+        }
       }
-      setState("error");
+      // keep setState("error") out of the shared path — each branch above
+      // already set the correct state
     } finally {
       abortControllerRef.current = null;
       onLoadingChangeRef.current?.(false);
@@ -222,7 +241,8 @@ export function MicRecorder({ onResult, onLoadingChange }: MicRecorderProps) {
     setPermissionDenied(false);
     setState("idle");
     setRecordingTime(0);
-  }, []);
+    onRetry?.();
+  }, [onRetry]);
 
   if (!isSupported) {
     return (
