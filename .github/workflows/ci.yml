@@ -19,8 +19,12 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: |
+          # openai-whisper ships as sdist with a legacy setup.py that needs
+          # pkg_resources (removed in setuptools>=81); pin the build toolchain
+          # and build without isolation so the pinned setuptools is used.
+          pip install "setuptools<81" wheel
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements-dev.txt
+          pip install -r requirements-dev.txt --no-build-isolation
       - name: Lint (ruff)
         working-directory: backend
         run: |
@@ -28,7 +32,7 @@ jobs:
           ruff check . --select E,F,W --ignore E501
       - name: Run tests
         working-directory: backend
-        run: python -m pytest tests/test_core.py tests/test_api.py -v
+        run: python -m pytest tests/test_core.py tests/test_api.py tests/test_reliability.py -v
 
   frontend-lint:
     runs-on: ubuntu-latest
