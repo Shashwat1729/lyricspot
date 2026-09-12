@@ -107,7 +107,7 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
           window.location.hostname !== "127.0.0.1";
         const unreachable = !!isStaticDemo;
         const msg = unreachable
-          ? "Voice identification needs the backend server, which isn't reachable from here. Open Backend settings (top right) to point at your server, or try the Lyrics tab — it works without one."
+          ? "Voice identification needs the backend server, which isn't reachable from here."
           : "Cannot reach the server. Please ensure the backend is running on port 8000.";
         // Lift to the page so the message survives the LoadingOverlay swap
         // (parent hides this component while loading, so local error state

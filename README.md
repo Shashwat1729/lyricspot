@@ -70,9 +70,16 @@ Copy backend/.env.example to backend/.env:
 The GitHub Pages site is a **static frontend build** — it cannot run the Python backend.
 
 - **Lyrics tab**: works on Pages via built-in demo responses for well-known songs
-- **Voice tab**: needs the backend running locally; on Pages it explains this instead of failing silently
+- **Voice tab**: needs a reachable backend. On Pages it explains this instead of failing silently. Open **Backend settings** (top right on the site) to point at your server — the URL is saved on your device.
 
-For full functionality (real Whisper transcription + live search), run both backend and frontend locally as above.
+### Making voice work for everyone (hosted backend)
+
+To make the public site work end-to-end with zero setup, host the backend once and bake its URL into the Pages build:
+
+1. **Deploy `backend/`** to HuggingFace Spaces (Docker SDK), Render, or Railway. The Dockerfile already respects the platform-provided `PORT`. Set `CORS_ORIGINS=https://shashwat1729.github.io` on the host so the browser is allowed to call it. Whisper downloads its model (~140MB) on first start, so expect the first request to be slow.
+2. **Rebuild the frontend** with the hosted URL: `NEXT_PUBLIC_API_URL=https://your-backend-host npm run build`, then copy `frontend/out/*` into `docs/` and push. From then on every visitor gets working voice with no configuration. Individual overrides in Backend settings still take precedence.
+
+Why API keys in settings wouldn't help: transcription needs Whisper *running somewhere* — a key alone can't transcribe audio in the browser. The hosted backend is the equivalent of that, with no keys needed from visitors.
 
 
 ## Screenshots
