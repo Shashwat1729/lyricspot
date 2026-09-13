@@ -84,21 +84,32 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // Stage ids must match LoadingOverlay's known stages so the progress
   // UI advances instead of stalling on unknown ids.
   onProgress?.("searching", "Searching lyrics...");
-  // LRCLIB search is phrase-based — long/generic queries often return 0.
-  // Try focused queries in order; keep the first one that yields hits.
-  // Scoring still uses the full transcript, so longer input improves quality.
-  const words = clean.split(/\s+/);
-  const queries = [
-    words.slice(0, 5).join(" "),
-    words.slice(0, 3).join(" "),
-    words.slice(0, 2).join(" "),
-  ].filter((q, i, a) => q && a.indexOf(q) !== i ? false : !!q);
+  // LRCLIB search is phrase-based — stop-word-heavy prefixes like
+  // "yesterday all my" often return 0 or irrelevant hits. Build queries
+  // from content words (no stop words) so "yesterday troubles seemed"
+  // finds Yesterday, etc. Scoring still uses the full transcript.
+  const STOP = new Set(["a","an","the","is","are","was","were","be","been","being","have","has","had","do","does","did","will","would","could","should","may","might","must","can","this","that","these","those","i","you","he","she","it","we","they","me","him","her","us","them","my","your","his","its","our","their","all","any","both","each","few","more","most","other","some","such","no","nor","not","only","own","same","so","than","too","very","just","because","but","and","or","if","then","else","when","up","down","in","out","on","off","over","under","again","further","once","here","there","where","why","how","what","which","who","whom","there","is","no","it","its"]);
+  const allWords = clean.split(/\s+/);
+  const contentWords = allWords.filter(w => !STOP.has(w));
+  const queries: string[] = [];
+  if (contentWords.length >= 2) queries.push(contentWords.slice(0, 4).join(" "));
+  if (contentWords.length >= 2) queries.push(contentWords.slice(0, 2).join(" "));
+  queries.push(allWords.slice(0, 5).join(" "));
+  queries.push(allWords.slice(0, 3).join(" "));
+  const deduped = Array.from(new Set(queries.filter(Boolean)));
   let data: any[] = [];
-  for (const q of queries) {
-    const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(8000) });
-    if (!r.ok) continue;
-    const d: any[] = await r.json();
-    if (d.length) { data = d; break; }
+  let seenTracks = new Set<string>();
+  for (const q of deduped) {
+    try {
+      const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
+      if (!r.ok) continue;
+      const d: any[] = await r.json();
+      for (const item of d) {
+        const key = (item.trackName || "") + "|" + (item.artistName || "");
+        if (!seenTracks.has(key) && data.length < 12) { data.push(item); seenTracks.add(key); }
+      }
+      if (data.length >= 8) break;
+    } catch {}
   }
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
