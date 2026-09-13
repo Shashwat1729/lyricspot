@@ -17,6 +17,7 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const EXAMPLES = [
     'never gonna give you up never gonna let you down',
@@ -26,7 +27,10 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
 
   const handleSubmit = async (e: any) => {
     if (e && e.preventDefault) e.preventDefault();
-    const text = (lyrics || '').trim();
+    // Read from the live DOM node, not just closed-over state, so a rapid
+    // type-then-Enter (before React flushes state) still submits.
+    const liveValue = textareaRef.current?.value ?? '';
+    const text = (liveValue || lyrics || '').trim();
     if (text.length < 5) { setError('Please enter at least a few words.'); return; }
 
     const controller = new AbortController();
@@ -88,12 +92,14 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="glass-premium rounded-2xl p-1">
           <textarea
+            ref={textareaRef}
             value={lyrics}
             onChange={(e) => { setLyrics(e.target.value); setError(null); }}
             onKeyDown={(e: any) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if ((lyrics || '').trim().length >= 5 && !loading) handleSubmit(e);
+                const current = (e.target as HTMLTextAreaElement).value || '';
+                if (current.trim().length >= 5 && !loading) handleSubmit(e);
               }
             }}
             placeholder='Type some lyrics here... e.g. "never gonna give you up"'
