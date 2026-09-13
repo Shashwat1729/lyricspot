@@ -92,10 +92,13 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const allWords = clean.split(/\s+/);
   const contentWords = allWords.filter(w => !STOP.has(w));
   const queries: string[] = [];
+  // Content-word queries first (most distinctive), then originals as fallback
+  // (e.g. "yesterday troubles" -> 0 hits, but "yesterday all my" -> 20)
   if (contentWords.length >= 2) queries.push(contentWords.slice(0, 4).join(" "));
   if (contentWords.length >= 2) queries.push(contentWords.slice(0, 2).join(" "));
   queries.push(allWords.slice(0, 5).join(" "));
   queries.push(allWords.slice(0, 3).join(" "));
+  queries.push(allWords.slice(0, 2).join(" "));
   const deduped = Array.from(new Set(queries.filter(Boolean)));
   let data: any[] = [];
   let seenTracks = new Set<string>();
@@ -122,8 +125,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     if (!lines.length) continue;
     const best = bestLine(clean, lines);
     if (!best) continue;
-    // keep only reasonable matches
-    if (best.score < 0.35) continue;
+    // keep only reasonable matches (lowered from 0.35 — Nirvana etc. hover ~0.30)
+    if (best.score < 0.25) continue;
     scored.push({ item, lines, bestIdx: best.idx, score: best.score });
   }
   if (!scored.length) throw new Error("No close lyric matches. Try a longer or clearer phrase.");
