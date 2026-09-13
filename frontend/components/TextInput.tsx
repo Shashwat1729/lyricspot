@@ -4,51 +4,12 @@ import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Loader2, X, Wand2 } from 'lucide-react';
 import { identifyLyrics, ApiResponse } from '@/lib/api';
+import { browserIdentify } from '@/lib/browserSearch';
 
 interface TextInputProps {
   onResult: (data: ApiResponse) => void;
   onLoadingChange?: (loading: boolean, progress?: any) => void;
   onError?: (message: string) => void;
-}
-
-const DEMO_RESPONSES: Record<string, any> = {
-  rick: {
-    song: 'Never Gonna Give You Up', artist: 'Rick Astley', confidence: 97, timestamp: 42,
-    timestamp_display: '0:42', spotify_url: 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT',
-    album_art: 'https://i.scdn.co/image/ab67616d0000b27360dd2b0021baddd668124b21', strategy: 'youtube',
-    lyrics_context: { before: ["We're no strangers to love", "You know the rules"], matched: 'Never gonna give you up', after: ['Never gonna let you down', 'Never gonna run around'] }
-  },
-  adele: {
-    song: 'Hello', artist: 'Adele', confidence: 94, timestamp: 44,
-    timestamp_display: '0:44', spotify_url: 'https://open.spotify.com/track/4aebBr4JAihzJQR0CiIZJv',
-    album_art: 'https://i.scdn.co/image/ab67616d0000b273e691d92a8f3a1f1225ede162', strategy: 'genius',
-    lyrics_context: { before: ['I was wondering if after all these years', "You'd like to meet"], matched: 'Hello from the other side', after: ["I must've called a thousand times", 'To tell you I am sorry'] }
-  },
-  queen: {
-    song: 'Bohemian Rhapsody', artist: 'Queen', confidence: 91, timestamp: 64,
-    timestamp_display: '1:04', spotify_url: 'https://open.spotify.com/track/3z8h0TUjRe9ihi8hSAMGJC',
-    album_art: 'https://i.scdn.co/image/ab67616d0000b273e8b066f70b2067a7e5ed9c36', strategy: 'itunes',
-    lyrics_context: { before: ['Mama, just killed a man', 'Put a gun against his head'], matched: 'Is this the real life? Is this just fantasy?', after: ['Caught in a landslide', 'No escape from reality'] }
-  }
-};
-
-/**
- * Demo library: only these well-known phrases have canned responses.
- * Anything else with no backend gets an honest "can't do that offline"
- * message instead of a fabricated song card.
- */
-function findDemoMatch(input: string): any | null {
-  const lower = input.toLowerCase();
-  for (const key of Object.keys(DEMO_RESPONSES)) {
-    const item = DEMO_RESPONSES[key];
-    const matchedLine: string = item.lyrics_context.matched.toLowerCase();
-    if (lower.includes(matchedLine.slice(0, 20))) {
-      const demo = JSON.parse(JSON.stringify(item));
-      demo.isDemo = true;
-      return demo;
-    }
-  }
-  return null;
 }
 
 export default function TextInput({ onResult, onLoadingChange, onError }: TextInputProps) {
@@ -81,22 +42,25 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
       clearTimeout(timeoutId);
 
       if (!data || !data.success) {
-        // Backend unreachable — fall back to the offline demo library.
-        const demo = findDemoMatch(text);
-        if (!demo) {
-          const msg = "Couldn't find that offline. Connect a backend in Backend settings (top right) for full search, or try one of the examples above.";
-          if (onError) {
-            onError(msg);
-          } else {
-            setError(msg);
-          }
+        // Backend unreachable — fall back to in-browser search (LRCLIB + iTunes).
+        try {
+          const browser = await browserIdentify(text, (stage, message) =>
+            onLoadingChange?.(true, { stage: stage as any, message })
+          );
+          data = {
+            success: true,
+            transcript: browser.transcript,
+            results: browser.results as any,
+            confidence_label: 'high' as const,
+          };
+        } catch (browserErr: any) {
+          const msg = browserErr?.message
+            ? browserErr.message + ' Try different lyrics, or connect a backend for broader search.'
+            : "Couldn't identify that. Try different lyrics.";
+          if (onError) onError(msg);
+          else setError(msg);
           return;
         }
-        onLoadingChange?.(true, { stage: 'found', message: 'Checking demo library...' });
-        await new Promise(r => setTimeout(r, 700));
-        onLoadingChange?.(true, { stage: 'candidate_ready', message: 'Demo match ready' });
-        await new Promise(r => setTimeout(r, 400));
-        data = { success: true, transcript: text, results: [demo], confidence_label: 'high' as const };
       }
 
       if (!controller.signal.aborted) onResult(data);
@@ -150,7 +114,7 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
         {!loading && !lyrics && (
           <div className="flex items-center justify-center gap-1.5 text-[11px] text-gray-600">
             <Wand2 className="w-3 h-3" />
-            <span>No backend? Try an example — full search needs one</span>
+            <span>Live in-browser search — no backend needed</span>
           </div>
         )}
 

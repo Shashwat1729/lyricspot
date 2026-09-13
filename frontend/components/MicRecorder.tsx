@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mic, Square, AlertCircle, RefreshCw, X } from "lucide-react";
 import { AnimatedWaveform } from "./AnimatedWaveform";
 import { uploadAudio, ApiResponse } from "@/lib/api";
+import { browserIdentify, isSpeechRecognitionAvailable, startSpeechRecognition } from "@/lib/browserSearch";
 
 type RecorderState = "idle" | "recording" | "uploading" | "processing" | "error";
 
@@ -106,12 +107,39 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
           window.location.hostname !== "localhost" &&
           window.location.hostname !== "127.0.0.1";
         const unreachable = !!isStaticDemo;
+        // On Pages, offer in-browser speech as a real fallback instead of a dead end.
+        if (unreachable && isSpeechRecognitionAvailable()) {
+          try {
+            setState("processing");
+            onLoadingChangeRef.current?.(true, "processing");
+            const transcript: string = await new Promise((resolve, reject) => {
+              const stop = startSpeechRecognition(resolve, reject);
+              // safety timeout for browser speech
+              setTimeout(() => { try { stop?.(); } catch {} ; reject(new Error("No speech detected.")); }, 8000);
+            });
+            const browser = await browserIdentify(transcript, (stage, msg) =>
+              onLoadingChangeRef.current?.(true, stage as any)
+            );
+            onResultRef.current({
+              success: true,
+              transcript: browser.transcript,
+              results: browser.results as any,
+              confidence_label: "high" as const,
+            } as ApiResponse);
+            setState("idle");
+            return;
+          } catch (speechErr: any) {
+            const msg = speechErr?.message || "Browser voice failed. Try the Lyrics tab.";
+            if (onError) { onError(msg, true); setState("idle"); }
+            else { setError(msg); setState("error"); }
+            return;
+          } finally {
+            onLoadingChangeRef.current?.(false);
+          }
+        }
         const msg = unreachable
           ? "Voice identification needs the backend server, which isn't reachable from here."
           : "Cannot reach the server. Please ensure the backend is running on port 8000.";
-        // Lift to the page so the message survives the LoadingOverlay swap
-        // (parent hides this component while loading, so local error state
-        // would be wiped on remount and look like a reset).
         if (onError) {
           onError(msg, unreachable);
           setState("idle");
