@@ -244,6 +244,9 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
 
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[10px] text-gray-600 uppercase tracking-wider bg-white/[0.03] px-2 py-0.5 rounded-full">via {result.strategy}</span>
+                    {result.isDemo && (
+                      <span className="text-[10px] uppercase tracking-wider bg-green-500/10 text-green-400/90 border border-green-500/20 px-2 py-0.5 rounded-full">Demo</span>
+                    )}
                   </div>
 
                   {result.lyrics_context && <LyricsContext context={result.lyrics_context} />}

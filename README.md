@@ -69,7 +69,7 @@ Copy backend/.env.example to backend/.env:
 
 The GitHub Pages site is a **static frontend build** — it cannot run the Python backend.
 
-- **Lyrics tab**: works on Pages via built-in demo responses for well-known songs
+- **Lyrics tab**: demo responses for 3 well-known example phrases work with no backend; anything else needs one (it says so instead of guessing)
 - **Voice tab**: needs a reachable backend. On Pages it explains this instead of failing silently. Open **Backend settings** (top right on the site) to point at your server — the URL is saved on your device.
 
 ### Making voice work for everyone (hosted backend)

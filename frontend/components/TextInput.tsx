@@ -31,23 +31,23 @@ const DEMO_RESPONSES: Record<string, any> = {
   }
 };
 
-const FALLBACK_RESULT = {
-  song: 'Demo Song', artist: 'Your Artist', confidence: 85, timestamp: 30,
-  timestamp_display: '0:30', spotify_url: 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT',
-  album_art: 'https://i.scdn.co/image/ab67616d0000b27360dd2b0021baddd668124b21', strategy: 'demo',
-  lyrics_context: { before: ['This is a demo result', 'The backend is not connected'], matched: '', after: ['To see real results', 'Start the backend server locally'] }
-};
-
-function findMatch(input: string): any {
+/**
+ * Demo library: only these well-known phrases have canned responses.
+ * Anything else with no backend gets an honest "can't do that offline"
+ * message instead of a fabricated song card.
+ */
+function findDemoMatch(input: string): any | null {
   const lower = input.toLowerCase();
   for (const key of Object.keys(DEMO_RESPONSES)) {
     const item = DEMO_RESPONSES[key];
     const matchedLine: string = item.lyrics_context.matched.toLowerCase();
-    if (lower.includes(matchedLine.slice(0, 20))) return JSON.parse(JSON.stringify(item));
+    if (lower.includes(matchedLine.slice(0, 20))) {
+      const demo = JSON.parse(JSON.stringify(item));
+      demo.isDemo = true;
+      return demo;
+    }
   }
-  const fallback = JSON.parse(JSON.stringify(FALLBACK_RESULT));
-  fallback.lyrics_context.matched = input;
-  return fallback;
+  return null;
 }
 
 export default function TextInput({ onResult, onLoadingChange }: TextInputProps) {
@@ -80,14 +80,17 @@ export default function TextInput({ onResult, onLoadingChange }: TextInputProps)
       clearTimeout(timeoutId);
 
       if (!data || !data.success) {
-        onLoadingChange?.(true, { stage: 'found', message: 'Song found!', candidates_count: 3 });
+        // Backend unreachable — fall back to the offline demo library.
+        const demo = findDemoMatch(text);
+        if (!demo) {
+          setError("Couldn't identify that without a backend. Connect one in Backend settings (top right), or try one of the examples above.");
+          return;
+        }
+        onLoadingChange?.(true, { stage: 'found', message: 'Checking demo library...' });
         await new Promise(r => setTimeout(r, 700));
-        onLoadingChange?.(true, { stage: 'lyrics', message: 'Fetching lyrics...' });
-        await new Promise(r => setTimeout(r, 500));
-        onLoadingChange?.(true, { stage: 'candidate_ready', message: 'Almost there...' });
+        onLoadingChange?.(true, { stage: 'candidate_ready', message: 'Demo match ready' });
         await new Promise(r => setTimeout(r, 400));
-        const match = findMatch(text);
-        data = { success: true, transcript: text, results: [match] };
+        data = { success: true, transcript: text, results: [demo], confidence_label: 'high' as const };
       }
 
       if (!controller.signal.aborted) onResult(data);
@@ -141,7 +144,7 @@ export default function TextInput({ onResult, onLoadingChange }: TextInputProps)
         {!loading && !lyrics && (
           <div className="flex items-center justify-center gap-1.5 text-[11px] text-gray-600">
             <Wand2 className="w-3 h-3" />
-            <span>Demo mode active - backend not required</span>
+            <span>No backend? Try an example — full search needs one</span>
           </div>
         )}
 
