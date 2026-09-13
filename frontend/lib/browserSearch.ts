@@ -10,6 +10,7 @@ export interface BrowserCandidate {
   confidence: number;
   timestamp: number | null;
   timestamp_display: string | null;
+  timestamp_estimated?: boolean;
   lyrics_context: { before: string[]; matched: string; after: string[] } | null;
   occurrences: { timestamp: number; match_score: number; matched_line: string }[];
   ambiguous: boolean;
@@ -157,10 +158,11 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
           song: trackName,
           artist: artistName,
           confidence: Math.round(bestTitle.score * 100),
-          timestamp: 0,
-          timestamp_display: fmt(0),
-          lyrics_context: null,
-          occurrences: [],
+          timestamp: 5,
+          timestamp_display: fmt(5),
+          timestamp_estimated: true,
+          lyrics_context: { before: [], matched: trackName, after: [] },
+          occurrences: [{ timestamp: 5, match_score: Math.round(bestTitle.score * 100), matched_line: trackName }],
           ambiguous: false,
           spotify_url: spotifyUrl,
           album_art: albumArt,
