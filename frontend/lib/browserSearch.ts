@@ -129,7 +129,48 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     if (best.score < 0.25) continue;
     scored.push({ item, lines, bestIdx: best.idx, score: best.score });
   }
-  if (!scored.length) throw new Error("No close lyric matches. Try a longer or clearer phrase.");
+  // Title fallback: some tracks (e.g. "Smells Like Teen Spirit") never
+  // repeat the title in the synced lyrics, so lyric-only scoring can miss
+  // them even though LRCLIB found them by title.
+  if (!scored.length) {
+    let bestTitle: { item: any; score: number } | null = null;
+    for (const item of data.slice(0, 5)) {
+      const s = tokenScore(clean, (item.trackName || "") + " " + (item.artistName || ""));
+      if (!bestTitle || s > bestTitle.score) bestTitle = { item, score: s };
+    }
+    if (bestTitle && bestTitle.score >= 0.35) {
+      const item = bestTitle.item;
+      const trackName: string = item.trackName || "Unknown";
+      const artistName: string = item.artistName || "";
+      let albumArt = "";
+      let spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
+      try {
+        const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(4000) });
+        if (r.ok) {
+          const j: any = await r.json();
+          if (j.results && j.results[0]) albumArt = (j.results[0].artworkUrl100 || "").replace("100x100", "300x300");
+        }
+      } catch {}
+      return {
+        transcript: clean,
+        results: [{
+          song: trackName,
+          artist: artistName,
+          confidence: Math.round(bestTitle.score * 100),
+          timestamp: 0,
+          timestamp_display: fmt(0),
+          lyrics_context: null,
+          occurrences: [],
+          ambiguous: false,
+          spotify_url: spotifyUrl,
+          album_art: albumArt,
+          strategy: "lrclib-title",
+          isBrowser: true as const,
+        }],
+      };
+    }
+    throw new Error("No close lyric matches. Try a longer or clearer phrase.");
+  }
 
   scored.sort((a, b) => b.score - a.score);
   const top = scored.slice(0, 3);
