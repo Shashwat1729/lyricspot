@@ -74,7 +74,11 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   if (!clean) throw new Error("Empty transcript");
 
   onProgress?.("searching", "Searching lyrics...");
-  const res = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(clean), { signal: AbortSignal.timeout(8000) });
+  // LRCLIB search is phrase-based — long queries often return 0. Use a
+  // focused 5-word prefix for the search, but score against the full
+  // transcript so longer input still improves match quality.
+  const searchQuery = clean.split(/\s+/).slice(0, 5).join(" ");
+  const res = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(searchQuery), { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error("Lyrics search failed (" + res.status + ")");
   const data: any[] = await res.json();
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
