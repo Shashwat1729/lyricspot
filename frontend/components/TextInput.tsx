@@ -9,7 +9,7 @@ import { browserIdentify } from '@/lib/browserSearch';
 interface TextInputProps {
   onResult: (data: ApiResponse) => void;
   onLoadingChange?: (loading: boolean, progress?: any) => void;
-  onError?: (message: string) => void;
+  onError?: (message: string | null) => void;
 }
 
 export default function TextInput({ onResult, onLoadingChange, onError }: TextInputProps) {
@@ -34,6 +34,9 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
     setLoading(true);
     onLoadingChange?.(true, { stage: 'searching', message: 'Looking for your song...' });
     setError(null);
+    // Clear any lifted parent error from a prior offline attempt so it
+    // doesn't linger alongside the next result.
+    onError?.(null);
 
     try {
       const timeoutId = setTimeout(() => controller.abort(), 4000);

@@ -29,6 +29,8 @@ export default function Home() {
   }, [showResult]);
 
   const handleResult = (data: any) => {
+    setTextError(null);
+    setRecorderError(null);
     setResult(data);
     setShowResult(true);
     setLoading(false);
@@ -47,11 +49,15 @@ export default function Home() {
   };
 
   const clearRecorderError = () => setRecorderError(null);
-  const handleTextError = (message: string) => setTextError(message);
+  const handleTextError = (message: string | null) => {
+    if (!message || message === '__CLEAR__') setTextError(null);
+    else setTextError(message);
+  };
   const clearTextError = () => setTextError(null);
   const handleModeChange = (next: string) => { setMode(next); setTextError(null); setRecorderError(null); };
 
   const handleLoadingChange = (isLoading: boolean, progressEvent?: any) => {
+    if (isLoading) { setTextError(null); setRecorderError(null); }
     setLoading(isLoading);
     if (progressEvent && typeof progressEvent === 'object') setProgress(progressEvent);
     else setProgress(null);
