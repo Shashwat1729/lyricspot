@@ -8,6 +8,7 @@ import { identifyLyrics, ApiResponse } from '@/lib/api';
 interface TextInputProps {
   onResult: (data: ApiResponse) => void;
   onLoadingChange?: (loading: boolean, progress?: any) => void;
+  onError?: (message: string) => void;
 }
 
 const DEMO_RESPONSES: Record<string, any> = {
@@ -50,7 +51,7 @@ function findDemoMatch(input: string): any | null {
   return null;
 }
 
-export default function TextInput({ onResult, onLoadingChange }: TextInputProps) {
+export default function TextInput({ onResult, onLoadingChange, onError }: TextInputProps) {
   const [lyrics, setLyrics] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +84,12 @@ export default function TextInput({ onResult, onLoadingChange }: TextInputProps)
         // Backend unreachable — fall back to the offline demo library.
         const demo = findDemoMatch(text);
         if (!demo) {
-          setError("Couldn't identify that without a backend. Connect one in Backend settings (top right), or try one of the examples above.");
+          const msg = "Couldn't find that offline. Connect a backend in Backend settings (top right) for full search, or try one of the examples above.";
+          if (onError) {
+            onError(msg);
+          } else {
+            setError(msg);
+          }
           return;
         }
         onLoadingChange?.(true, { stage: 'found', message: 'Checking demo library...' });
