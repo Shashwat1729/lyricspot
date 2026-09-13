@@ -74,13 +74,22 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   if (!clean) throw new Error("Empty transcript");
 
   onProgress?.("searching", "Searching lyrics...");
-  // LRCLIB search is phrase-based — long queries often return 0. Use a
-  // focused 5-word prefix for the search, but score against the full
-  // transcript so longer input still improves match quality.
-  const searchQuery = clean.split(/\s+/).slice(0, 5).join(" ");
-  const res = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(searchQuery), { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error("Lyrics search failed (" + res.status + ")");
-  const data: any[] = await res.json();
+  // LRCLIB search is phrase-based — long/generic queries often return 0.
+  // Try focused queries in order; keep the first one that yields hits.
+  // Scoring still uses the full transcript, so longer input improves quality.
+  const words = clean.split(/\s+/);
+  const queries = [
+    words.slice(0, 5).join(" "),
+    words.slice(0, 3).join(" "),
+    words.slice(0, 2).join(" "),
+  ].filter((q, i, a) => q && a.indexOf(q) !== i ? false : !!q);
+  let data: any[] = [];
+  for (const q of queries) {
+    const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) continue;
+    const d: any[] = await r.json();
+    if (d.length) { data = d; break; }
+  }
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
   onProgress?.("matching", "Matching lyrics...");
