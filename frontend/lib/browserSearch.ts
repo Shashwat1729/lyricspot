@@ -19,6 +19,14 @@ export interface BrowserCandidate {
   isBrowser: true;
 }
 
+/** AbortSignal.timeout with fallback for older browsers. */
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
 function fmt(ts: number | null): string | null {
   if (ts == null || ts < 0) return null;
   const m = Math.floor(ts / 60);
@@ -73,6 +81,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const clean = transcript.trim();
   if (!clean) throw new Error("Empty transcript");
 
+  // Stage ids must match LoadingOverlay's known stages so the progress
+  // UI advances instead of stalling on unknown ids.
   onProgress?.("searching", "Searching lyrics...");
   // LRCLIB search is phrase-based — long/generic queries often return 0.
   // Try focused queries in order; keep the first one that yields hits.
@@ -85,14 +95,14 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   ].filter((q, i, a) => q && a.indexOf(q) !== i ? false : !!q);
   let data: any[] = [];
   for (const q of queries) {
-    const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: AbortSignal.timeout(8000) });
+    const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(8000) });
     if (!r.ok) continue;
     const d: any[] = await r.json();
     if (d.length) { data = d; break; }
   }
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
-  onProgress?.("matching", "Matching lyrics...");
+  onProgress?.("lyrics", "Matching lyrics...");
   const scored: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[] = [];
   for (const item of data.slice(0, 8)) {
     const synced: string = item.syncedLyrics || "";
@@ -110,7 +120,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   scored.sort((a, b) => b.score - a.score);
   const top = scored.slice(0, 3);
 
-  onProgress?.("artwork", "Fetching artwork...");
+  onProgress?.("candidate_ready", "Fetching artwork...");
   const results: BrowserCandidate[] = [];
   for (const c of top) {
     const trackName: string = c.item.trackName || c.item.track || "Unknown";
@@ -130,7 +140,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     let albumArt = "";
     let spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
     try {
-      const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: AbortSignal.timeout(4000) });
+      const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(4000) });
       if (r.ok) {
         const j: any = await r.json();
         if (j.results && j.results[0]) {

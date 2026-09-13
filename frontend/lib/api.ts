@@ -118,8 +118,6 @@ export interface SongResult {
   album_art?: string;
   strategy: string;
   sources?: string[];
-  /** True for canned offline-demo responses (never a real identification). */
-  isDemo?: boolean;
 }
 
 /** API response from /upload or /identify */

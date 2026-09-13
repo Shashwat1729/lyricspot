@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Settings, X, Check, RotateCcw, Loader2, Server } from "lucide-react";
 import {
@@ -25,6 +25,13 @@ export function SettingsButton() {
     setSaved(false);
     setOpen(true);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open ]);
 
   const handleTest = async () => {
     setTesting(true);

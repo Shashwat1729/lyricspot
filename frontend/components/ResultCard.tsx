@@ -10,7 +10,7 @@ declare const window: SpotifyIframeWindow;
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RotateCcw, Play, ThumbsUp, ThumbsDown, ExternalLink } from 'lucide-react';
-import { SongResult, extractSpotifyTrackId, getConfidenceRingColor, submitFeedback } from '@/lib/api';
+import { SongResult, extractSpotifyTrackId, getConfidenceRingColor, submitFeedback, checkBackendHealth } from '@/lib/api';
 import { Confetti } from './Confetti';
 
 interface ResultCardProps {
@@ -154,6 +154,17 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
   const [showAll, setShowAll] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState<Record<number, "up" | "down">>({});
   const [showConfetti, setShowConfetti] = useState(false);
+  // Feedback needs the backend; probe once so the buttons don't silently die.
+  const [feedbackOnline, setFeedbackOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    checkBackendHealth(3000).then(
+      (r) => { if (!cancelled) setFeedbackOnline(r.ok); },
+      () => { if (!cancelled) setFeedbackOnline(false); }
+    );
+    return () => { cancelled = true; };
+  }, []);
 
   if (!results || results.length === 0) return null;
 
@@ -222,21 +233,21 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
                     {index === 0 && result.confidence < 60 && (
                       <span className="text-[10px] text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">Unsure</span>
                     )}
-                    <div className="flex flex-col gap-1 ml-1">
+                    <div className="flex flex-col gap-1 ml-1" title={feedbackOnline === false ? "Feedback needs a backend connection" : undefined}>
                       <button onClick={() => {
-                        if (feedbackGiven[index]) return;
-                        setFeedbackGiven(prev => ({ ...prev, [index]: "up" }));
-                        submitFeedback(transcript, result.song, result.artist, "up").catch(() => {});
-                      }} disabled={!!feedbackGiven[index]}
-                        className={"p-1 rounded transition-all " + (feedbackGiven[index] === "up" ? "text-green-400 scale-110" : feedbackGiven[index] ? "text-gray-700 cursor-not-allowed" : "text-gray-500 hover:text-green-400 hover:scale-110")}>
+                        if (feedbackGiven[index] || feedbackOnline === false) return;
+                        setFeedbackGiven(prev => ({ ...prev, [index]: 'up' }));
+                        submitFeedback(transcript, result.song, result.artist, 'up').catch(() => {});
+                      }} disabled={!!feedbackGiven[index] || feedbackOnline === false}
+                        className={'p-1 rounded transition-all ' + (feedbackGiven[index] === 'up' ? 'text-green-400 scale-110' : (feedbackGiven[index] || feedbackOnline === false) ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-green-400 hover:scale-110')}>
                         <ThumbsUp className="w-3.5 h-3.5" />
                       </button>
                       <button onClick={() => {
-                        if (feedbackGiven[index]) return;
-                        setFeedbackGiven(prev => ({ ...prev, [index]: "down" }));
-                        submitFeedback(transcript, result.song, result.artist, "down").catch(() => {});
-                      }} disabled={!!feedbackGiven[index]}
-                        className={"p-1 rounded transition-all " + (feedbackGiven[index] === "down" ? "text-red-400 scale-110" : feedbackGiven[index] ? "text-gray-700 cursor-not-allowed" : "text-gray-500 hover:text-red-400 hover:scale-110")}>
+                        if (feedbackGiven[index] || feedbackOnline === false) return;
+                        setFeedbackGiven(prev => ({ ...prev, [index]: 'down' }));
+                        submitFeedback(transcript, result.song, result.artist, 'down').catch(() => {});
+                      }} disabled={!!feedbackGiven[index] || feedbackOnline === false}
+                        className={'p-1 rounded transition-all ' + (feedbackGiven[index] === 'down' ? 'text-red-400 scale-110' : (feedbackGiven[index] || feedbackOnline === false) ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-red-400 hover:scale-110')}>
                         <ThumbsDown className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -244,9 +255,6 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
 
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[10px] text-gray-600 uppercase tracking-wider bg-white/[0.03] px-2 py-0.5 rounded-full">via {result.strategy}</span>
-                    {result.isDemo && (
-                      <span className="text-[10px] uppercase tracking-wider bg-green-500/10 text-green-400/90 border border-green-500/20 px-2 py-0.5 rounded-full">Demo</span>
-                    )}
                   </div>
 
                   {result.lyrics_context && <LyricsContext context={result.lyrics_context} />}
