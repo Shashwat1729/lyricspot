@@ -98,3 +98,6 @@ htmlcov/
 *.orig
 .tmp
 .cache
+
+# QA harnesses (dev-only, never commit)
+qa_*.js
