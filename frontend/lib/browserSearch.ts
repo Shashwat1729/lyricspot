@@ -28,6 +28,64 @@ function timeoutSignal(ms: number): AbortSignal {
   return c.signal;
 }
 
+/** Strip auto-generated channel suffixes ("Nirvana - Topic") from artist names. */
+function cleanArtist(name: string): string {
+  return (name || "")
+    .replace(/\s*-\s*topic$/i, "")
+    .replace(/\s*vevo$/i, "")
+    .trim();
+}
+
+/**
+ * Query Deezer's free search for a track's popularity rank.
+ * Returns 0..1 (log-normalized) or 0 when unavailable. Never throws.
+ */
+async function deezerPopularity(track: string, artist: string): Promise<number> {
+  try {
+    const q = 'track:"' + track + '" artist:"' + artist + '"';
+    const r = await fetch("https://api.deezer.com/search?q=" + encodeURIComponent(q) + "&limit=3", { signal: timeoutSignal(4000) });
+    if (!r.ok) return 0;
+    const j: any = await r.json();
+    const list: any[] = j.data || [];
+    for (const t of list) {
+      const dt = (t.title || "").toLowerCase();
+      if (dt && (track.toLowerCase().includes(dt) || dt.includes(track.toLowerCase()))) {
+        const rank = Number(t.rank) || 0;
+        if (rank > 0) return Math.min(1, Math.log10(rank + 1) / 6);
+        return 0;
+      }
+    }
+    // Fallback: best rank among returned tracks, heavily discounted.
+    let best = 0;
+    for (const t of list) best = Math.max(best, Number(t.rank) || 0);
+    return best > 0 ? Math.min(1, Math.log10(best + 1) / 6) * 0.5 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Re-rank lyric candidates by evidence, not just lyric overlap:
+ *   final = 0.65 * lyricMatch + 0.25 * popularity + 0.10 * titleBonus
+ * Popularity (Deezer rank) separates famous originals from obscure covers.
+ */
+async function rerankByPopularity(
+  transcript: string,
+  candidates: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[]
+): Promise<{ item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number; final: number }[]> {
+  const contentWords = transcript.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const withPop = await Promise.all(candidates.map(async (c) => {
+    const track = c.item.trackName || "";
+    const artist = cleanArtist(c.item.artistName || "");
+    const pop = await deezerPopularity(track, artist);
+    const titleBonus = tokenScore(contentWords.join(" "), track.toLowerCase());
+    const final = 0.65 * c.score + 0.25 * pop + 0.10 * titleBonus;
+    return { ...c, final };
+  }));
+  withPop.sort((a, b) => b.final - a.final || b.score - a.score);
+  return withPop;
+}
+
 function fmt(ts: number | null): string | null {
   if (ts == null || ts < 0) return null;
   const m = Math.floor(ts / 60);
@@ -174,14 +232,19 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     throw new Error("No close lyric matches. Try a longer or clearer phrase.");
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, 3);
+  // Popularity re-rank: lyric match alone can't tell the famous original
+  // from an obscure cover with identical lyrics (e.g. Charlie Puth's
+  // "Attention" vs covers literally titled after its hook). Deezer's free
+  // search API exposes a per-track `rank` popularity score — no key needed.
+  onProgress?.("candidate_ready", "Ranking by popularity...");
+  const ranked = await rerankByPopularity(clean, scored.slice(0, 6));
+  const top = ranked.slice(0, 3);
 
   onProgress?.("candidate_ready", "Fetching artwork...");
   const results: BrowserCandidate[] = [];
   for (const c of top) {
     const trackName: string = c.item.trackName || c.item.track || "Unknown";
-    const artistName: string = c.item.artistName || c.item.artist || "";
+    const artistName: string = cleanArtist(c.item.artistName || c.item.artist || "");
     const ts = c.lines[c.bestIdx].t;
     // occurrences (same line repeated)
     const occs = c.lines
@@ -210,7 +273,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     results.push({
       song: trackName,
       artist: artistName,
-      confidence: Math.round(c.score * 100),
+      confidence: Math.round(c.final * 100),
       timestamp: ts,
       timestamp_display: fmt(ts),
       lyrics_context: { before, matched: c.lines[c.bestIdx].text, after },
@@ -244,9 +307,23 @@ export function startSpeechRecognition(
   rec.onresult = (e: any) => {
     const t = e.results?.[0]?.[0]?.transcript;
     if (t) onResult(t);
-    else onError("Did not catch that. Try again.");
+    else onError("Did not catch that. Try again, speaking clearly.");
   };
-  rec.onerror = (e: any) => onError(e.error === "not-allowed" ? "Microphone permission denied." : e.error === "no-speech" ? "No speech detected. Try again." : "Speech error: " + (e.error || "unknown"));
+  rec.onerror = (e: any) => {
+    const code = e.error || "unknown";
+    // Surface the specific code — "Browser voice failed" with no detail
+    // is unactionable. Known codes: not-allowed, no-speech, network,
+    // service-not-allowed, audio-capture, aborted.
+    if (code === "not-allowed" || code === "service-not-allowed") {
+      onError("Microphone permission denied for voice recognition (" + code + "). Check the browser site settings.");
+    } else if (code === "no-speech") {
+      onError("No speech detected (no-speech). Sing or say the lyric clearly, closer to the mic.");
+    } else if (code === "aborted") {
+      onError("Voice recognition stopped. Try again.");
+    } else {
+      onError("Voice recognition failed (" + code + "). Try the Lyrics tab instead.");
+    }
+  };
   rec.start();
   return () => { try { rec.stop(); } catch {} };
 }

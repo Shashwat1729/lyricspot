@@ -113,9 +113,21 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
             setState("processing");
             onLoadingChangeRef.current?.(true, "processing");
             const transcript: string = await new Promise((resolve, reject) => {
-              const stop = startSpeechRecognition(resolve, reject);
-              // safety timeout for browser speech
-              setTimeout(() => { try { stop?.(); } catch {} ; reject(new Error("No speech detected.")); }, 8000);
+              let settled = false;
+              const safety = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                try { stopFn?.(); } catch {}
+                reject(new Error("Voice recognition timed out (no result in 20s). Try the Lyrics tab."));
+              }, 20000);
+              const stopFn = startSpeechRecognition(
+                (t: string) => { if (!settled) { settled = true; clearTimeout(safety); resolve(t); } },
+                (m: string) => { if (!settled) { settled = true; clearTimeout(safety); reject(new Error(m)); } }
+              );
+              if (!stopFn) {
+                // startSpeechRecognition already called onError for unsupported browsers.
+                if (!settled) { settled = true; clearTimeout(safety); reject(new Error("Speech recognition not supported in this browser. Try Chrome.")); }
+              }
             });
             const browser = await browserIdentify(transcript, (stage, msg) =>
               onLoadingChangeRef.current?.(true, stage as any)
