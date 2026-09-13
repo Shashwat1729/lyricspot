@@ -177,7 +177,10 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
 
   onProgress?.("lyrics", "Matching lyrics...");
   const scored: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[] = [];
-  for (const item of data.slice(0, 8)) {
+  // Score every collected candidate, not just the first few — the famous
+  // original often sits below covers in raw search order.
+  for (const item of data) {
+    if (item.instrumental === true) continue;
     const synced: string = item.syncedLyrics || "";
     const plain: string = item.plainLyrics || "";
     const lines = synced ? parseSynced(synced) : plain.split("\n").map((t: string, i: number) => ({ t: i * 3, text: t.trim() })).filter((l: any) => l.text);
