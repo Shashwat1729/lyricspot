@@ -11,15 +11,16 @@
 
 Ever had a song stuck in your head but only remember one line? LyricSpot listens to you sing (or reads what you type), identifies the song using local AI, finds the exact second your lyric appears, and opens Spotify right at that timestamp.
 
-**No cloud, no tracking, no paid APIs.** Everything runs on your machine.
+**No cloud, no tracking, no paid APIs.** With a backend running, everything stays on your machine. On GitHub Pages the Lyrics tab works directly in your browser (LRCLIB + iTunes) — still no keys, no tracking.
 
 ## Features
 
-- **Voice Input** - Sing into your mic (3s min, 5-10s recommended, 15s max)
-- **Text Input** - Type whatever lyrics you remember
-- **Local AI** - OpenAI Whisper runs entirely on your computer
-- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch in parallel
-- **Precise Timestamps** - Finds the exact second your lyric appears
+- **Voice Input** - Sing into your mic (3s min, 5-10s recommended, 15s max) — uses Whisper when a backend is connected, falls back to in-browser speech recognition on Pages
+- **Text Input** - Type whatever lyrics you remember — live lyric search with browser fallback
+- **Local AI** - OpenAI Whisper when a backend is running; browser Speech API as fallback on Pages
+- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch + Deezer + MusicBrainz (backend); LRCLIB + iTunes (browser)
+- **Popularity-Aware Ranking** - Famous originals outrank obscure covers with identical lyrics
+- **Precise Timestamps** - Finds the exact second your lyric appears (including repeated choruses)
 - **Spotify Deep Link** - One click opens Spotify at the right timestamp
 - **Multilingual input** - English, Hindi, Korean, Spanish, French, Portuguese, Japanese; accuracy is highest for English and varies by language and singing style
 
@@ -65,21 +66,16 @@ Copy backend/.env.example to backend/.env:
 | CONFIDENCE_HIGH_THRESHOLD | No | 70 | Absolute score needed for a "high" confidence result |
 | CONFIDENCE_HIGH_MARGIN | No | 10 | Top-1/top-2 gap needed for a "high" confidence result |
 
-## GitHub Pages vs Local
+## How the two deployments relate
 
-The GitHub Pages site is a **static frontend build** — it cannot run the Python backend.
+**Local (full power):** Backend does Whisper + parallel search + lyric verification. Most accurate, private, supports all languages.
 
-- **Lyrics tab**: demo responses for 3 well-known example phrases work with no backend; anything else needs one (it says so instead of guessing)
-- **Voice tab**: needs a reachable backend. On Pages it explains this instead of failing silently. Open **Backend settings** (top right on the site) to point at your server — the URL is saved on your device.
+**GitHub Pages (zero setup):** Static build at [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/) — no server needed.
 
-### Making voice work for everyone (hosted backend)
+- **Lyrics tab** searches LRCLIB + iTunes directly from your browser, finds real songs with timestamps and artwork.
+- **Voice tab** tries the backend first; if unreachable, falls back to in-browser speech recognition piped into the same search.
 
-To make the public site work end-to-end with zero setup, host the backend once and bake its URL into the Pages build:
-
-1. **Deploy `backend/`** to HuggingFace Spaces (Docker SDK), Render, or Railway. The Dockerfile already respects the platform-provided `PORT`. Set `CORS_ORIGINS=https://shashwat1729.github.io` on the host so the browser is allowed to call it. Whisper downloads its model (~140MB) on first start, so expect the first request to be slow.
-2. **Rebuild the frontend** with the hosted URL: `NEXT_PUBLIC_API_URL=https://your-backend-host npm run build`, then copy `frontend/out/*` into `docs/` and push. From then on every visitor gets working voice with no configuration. Individual overrides in Backend settings still take precedence.
-
-Why API keys in settings wouldn't help: transcription needs Whisper *running somewhere* — a key alone can't transcribe audio in the browser. The hosted backend is the equivalent of that, with no keys needed from visitors.
+If you run your own backend elsewhere, set it in **Backend settings** (top right). That URL is saved on your device and takes precedence. Or host `backend/` once (HuggingFace Spaces / Render / Railway — Dockerfile already handles `PORT`, just set `CORS_ORIGINS=https://shashwat1729.github.io`) and bake it in with `NEXT_PUBLIC_API_URL=https://your-host npm run build`.
 
 
 ## Screenshots
