@@ -133,11 +133,15 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
             const browser = await browserIdentify(transcript, (stage, msg) =>
               onLoadingChangeRef.current?.(true, stage as any)
             );
+            const vTop = browser.results[0]?.confidence ?? 0;
+            const vSecond = browser.results[1]?.confidence ?? 0;
+            const vGap = vTop - vSecond;
             onResultRef.current({
               success: true,
               transcript: browser.transcript,
               results: browser.results as any,
-              confidence_label: "high" as const,
+              confidence_label: (vTop >= 70 && vGap >= 10 ? "high" : vTop >= 50 ? "uncertain" : "low") as "high" | "uncertain" | "low",
+              margin: vGap,
             } as ApiResponse);
             setState("idle");
             return;

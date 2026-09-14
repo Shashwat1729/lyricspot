@@ -13,18 +13,8 @@ from pathlib import Path
 from typing import Optional
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-
-# These are initialized in lifespan; declared here for type reference
-_candidate_executor: Optional[ThreadPoolExecutor] = None
-_upload_semaphore: Optional[asyncio.Semaphore] = None
-
-from dotenv import load_dotenv
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
-
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -41,6 +31,15 @@ from services.timestamp_matcher import TimestampMatcher
 from services.spotify_linker import SpotifyLinker
 from services.confidence_calculator import confidence_calculator
 from services.feedback_store import FeedbackStore
+
+load_dotenv()
+
+# These are initialized in lifespan; declared here for type reference
+_candidate_executor: Optional[ThreadPoolExecutor] = None
+_upload_semaphore: Optional[asyncio.Semaphore] = None
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 _feedback_store = FeedbackStore()
 

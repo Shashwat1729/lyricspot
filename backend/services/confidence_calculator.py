@@ -70,7 +70,7 @@ class ConfidenceCalculator:
     ) -> int:
         """
         Calculate final confidence score combining all available signals.
-        
+
         Signals with no data are EXCLUDED from the weighted average
         (not penalized as neutral) so missing lyrics verification
         doesn't drag down an otherwise strong identification.

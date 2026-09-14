@@ -54,11 +54,15 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
           const browser = await browserIdentify(text, (stage, message) =>
             onLoadingChange?.(true, { stage: stage as any, message })
           );
+          const top = browser.results[0]?.confidence ?? 0;
+          const second = browser.results[1]?.confidence ?? 0;
+          const gap = top - second;
           data = {
             success: true,
             transcript: browser.transcript,
             results: browser.results as any,
-            confidence_label: 'high' as const,
+            confidence_label: (top >= 70 && gap >= 10 ? 'high' : top >= 50 ? 'uncertain' : 'low') as 'high' | 'uncertain' | 'low',
+            margin: gap,
           };
         } catch (browserErr: any) {
           const msg = browserErr?.message

@@ -98,7 +98,7 @@ class TimestampMatcher:
             and set(line.get("text", "").lower().split()) & transcript_words
         ]
         if not filtered_lines:
-            filtered_lines = [l for l in lyrics_lines if l.get("text", "").strip() and len(l.get("text", "").strip()) >= 3]
+            filtered_lines = [ln for ln in lyrics_lines if ln.get("text", "").strip() and len(ln.get("text", "").strip()) >= 3]
 
         # Pre-compute normalized text for all filtered lines
         precomputed = [(line, line.get("text", "").lower().strip(), _normalize_phonetic(line.get("text", "").lower().strip(), language)) for line in filtered_lines]

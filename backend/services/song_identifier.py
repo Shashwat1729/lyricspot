@@ -27,9 +27,6 @@ import urllib.parse
 from typing import Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 
-# Module-level executor for identification strategies
-_identify_executor = ThreadPoolExecutor(max_workers=4)
-
 import requests
 from bs4 import BeautifulSoup
 from rapidfuzz import fuzz
@@ -38,6 +35,9 @@ from utils.title_cleaner import clean_title
 from services.query_expansion import expand_queries
 
 logger = logging.getLogger(__name__)
+
+# Module-level executor for identification strategies
+_identify_executor = ThreadPoolExecutor(max_workers=4)
 
 # Fixed strategy order — completion order must never determine ranking.
 STRATEGY_ORDER = (
@@ -142,7 +142,7 @@ def merge_candidates(
 class SongIdentifier:
     """
     Song identification service using multiple search strategies.
-    
+
     Strategy 1: Genius.com search (primary)
     Strategy 2: YouTube search (fallback)
     """
@@ -631,7 +631,7 @@ class SongIdentifier:
     def _prepare_search_query(self, transcript: str) -> str:
         """
         Prepare transcript for search query.
-        
+
         Cleans and truncates text for optimal search results.
         Only appends 'lyrics' for short/ambiguous queries.
         """
@@ -663,13 +663,13 @@ class SongIdentifier:
     def _youtube_search(self, query: str, original_transcript: str) -> Optional[Dict[str, Any]]:
         """
         Search YouTube for song matching lyrics.
-        
+
         Scrapes YouTube search results page.
-        
+
         Args:
             query: Search query string
             original_transcript: Original transcript for confidence scoring
-            
+
         Returns:
             Dict with song, artist, confidence or None
         """
@@ -731,7 +731,7 @@ class SongIdentifier:
         """
         Extract video titles from YouTube's ytInitialData JSON.
         Also extracts channel names as potential artist info.
-        
+
         Returns:
             List of video title strings (may include "title | channel" format)
         """

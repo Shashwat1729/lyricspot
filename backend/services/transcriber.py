@@ -32,7 +32,7 @@ class TranscriptionResult:
 class TranscriptionService:
     """
     Audio transcription service using OpenAI's Whisper model.
-    
+
     Uses lazy singleton pattern - model is loaded on first transcription request.
     """
 
@@ -54,9 +54,9 @@ class TranscriptionService:
     def _load_model(self):
         """
         Lazy load the Whisper model.
-        
+
         Model is loaded on first use to avoid startup delay.
-        
+
         Returns:
             Loaded Whisper model
         """
@@ -251,10 +251,10 @@ class TranscriptionService:
     def _clean_transcription(self, text: str) -> str:
         """
         Clean up common Whisper transcription artifacts.
-        
+
         Args:
             text: Raw transcription text
-            
+
         Returns:
             Cleaned text
         """
@@ -263,10 +263,10 @@ class TranscriptionService:
     def transcribe_with_timestamps(self, wav_path: str) -> list:
         """
         Transcribe audio with word-level timestamps.
-        
+
         Args:
             wav_path: Path to WAV audio file
-            
+
         Returns:
             List of segments with timestamps: [{"start": float, "end": float, "text": str}, ...]
         """

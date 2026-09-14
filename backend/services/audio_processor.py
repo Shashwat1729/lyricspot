@@ -21,7 +21,7 @@ class AudioProcessor:
     def convert_to_wav(self, input_path: str, output_path: str) -> None:
         """
         Convert any audio format to WAV (mono, 16kHz) using ffmpeg.
-        
+
         Args:
             input_path: Path to input audio file (webm, mp3, etc.)
             output_path: Path for output WAV file
@@ -55,7 +55,7 @@ class AudioProcessor:
         """
         Normalize audio amplitude using librosa.
         Improves Whisper transcription accuracy for quiet recordings.
-        
+
         Args:
             wav_path: Path to WAV file (modified in place)
         """

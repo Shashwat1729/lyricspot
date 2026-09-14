@@ -17,7 +17,6 @@ export interface BrowserCandidate {
   spotify_url: string;
   album_art: string;
   strategy: string;
-  isBrowser: true;
 }
 
 /** AbortSignal.timeout with fallback for older browsers. */
@@ -55,9 +54,9 @@ async function itunesPopularity(track: string, artist: string): Promise<number> 
     const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(term) + "&entity=song&limit=5", { signal: timeoutSignal(4000) });
     if (!r.ok) return 0;
     const j: any = await r.json();
-    const list: any[] = j.data || [];
+    const list: any[] = j.results || [];
     for (const t of list) {
-      const dt = (t.trackName || t.title || "").toLowerCase();
+      const dt = (t.trackName || "").toLowerCase();
       if (dt && (track.toLowerCase().includes(dt) || dt.includes(track.toLowerCase()))) return 1 - (list.indexOf(t) / 5);
     }
     return 0;
@@ -69,21 +68,41 @@ async function itunesPopularity(track: string, artist: string): Promise<number> 
 /**
  * Re-rank lyric candidates by evidence, not just lyric overlap:
  *   final = 0.65 * lyricMatch + 0.25 * popularity + 0.10 * titleBonus
- * Popularity (Deezer rank) separates famous originals from obscure covers.
+ * Popularity (iTunes position) separates famous originals from obscure
+ * covers. When popularity carries no signal (max spread < 0.2 — e.g. all
+ * obscure long-tail tracks), its weight is dropped and lyric/title decide
+ * alone, so unknown artists are never punished for being unknown.
  */
+interface RankedCandidate {
+  item: any;
+  lines: { t: number; text: string }[];
+  bestIdx: number;
+  score: number;
+  titleBonus: number;
+  pop: number;
+  final: number;
+}
+
 async function rerankByPopularity(
   transcript: string,
   candidates: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[]
-): Promise<{ item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number; final: number }[]> {
+): Promise<RankedCandidate[]> {
   const contentWords = transcript.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  const withPop = await Promise.all(candidates.map(async (c) => {
+  const withPop: RankedCandidate[] = await Promise.all(candidates.map(async (c) => {
     const track = c.item.trackName || "";
     const artist = cleanArtist(c.item.artistName || "");
     const pop = await itunesPopularity(track, artist);
     const titleBonus = tokenScore(contentWords.join(" "), track.toLowerCase());
-    const final = 0.65 * c.score + 0.25 * pop + 0.10 * titleBonus;
-    return { ...c, final };
+    return { ...c, titleBonus, pop, final: 0 };
   }));
+  const pops = withPop.map(c => c.pop);
+  const spread = Math.max(...pops) - Math.min(...pops);
+  const usePop = spread >= 0.2;
+  for (const c of withPop) {
+    c.final = usePop
+      ? 0.65 * c.score + 0.25 * c.pop + 0.10 * c.titleBonus
+      : (0.65 * c.score + 0.10 * c.titleBonus) / 0.75;
+  }
   withPop.sort((a, b) => b.final - a.final || b.score - a.score);
   return withPop;
 }
@@ -212,7 +231,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     if (bestTitle && bestTitle.score >= 0.35) {
       const item = bestTitle.item;
       const trackName: string = item.trackName || "Unknown";
-      const artistName: string = item.artistName || "";
+      const artistName: string = cleanArtist(item.artistName || "");
       let albumArt = "";
       let spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
       try {
@@ -237,7 +256,6 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
           spotify_url: spotifyUrl,
           album_art: albumArt,
           strategy: "lrclib-title",
-          isBrowser: true as const,
         }],
       };
     }
@@ -295,7 +313,6 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       spotify_url: "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName),
       album_art: arts[i] || "",
       strategy: "lrclib",
-      isBrowser: true,
     };
   });
 

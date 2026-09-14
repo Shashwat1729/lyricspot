@@ -23,7 +23,7 @@ import requests
 class LyricsFetcher:
     """
     Lyrics fetching service using LRCLIB API.
-    
+
     LRCLIB provides free synced lyrics (LRC format) without API key.
     """
 
@@ -75,15 +75,15 @@ class LyricsFetcher:
     ) -> Optional[List[Dict[str, Any]]]:
         """
         Fetch synced lyrics for a song from multiple sources.
-        
+
         Priority:
         1. LRCLIB (free, no key, good coverage for English/mainstream)
         2. Musixmatch (14M+ songs, 80+ languages, best for non-English)
-        
+
         Args:
             song: Song title
             artist: Artist name
-            
+
         Returns:
             List of lyrics lines with timestamps:
             [{"timestamp_seconds": float, "text": str}, ...]
@@ -140,11 +140,11 @@ class LyricsFetcher:
     def _search_lyrics(self, song: str, artist: str) -> Optional[Dict]:
         """
         Search LRCLIB for lyrics.
-        
+
         Args:
             song: Song title
             artist: Artist name (can be empty)
-            
+
         Returns:
             Lyrics data dict or None
         """
@@ -177,7 +177,9 @@ class LyricsFetcher:
                     result_title = result.get("trackName", "").lower()
                     result_artist = result.get("artistName", "").lower()
 
-                    if self._fuzzy_match(song, result_title):
+                    if self._fuzzy_match(song, result_title) and (
+                        not artist or self._fuzzy_match(artist, result_artist)
+                    ):
                         return result
 
             # Return first result with synced lyrics even if not perfect match
@@ -287,12 +289,12 @@ class LyricsFetcher:
     def parse_lrc(self, lrc_string: str) -> List[Dict[str, Any]]:
         """
         Parse LRC format lyrics to list of timestamped lines.
-        
+
         LRC format: [mm:ss.xx]Lyrics text
-        
+
         Args:
             lrc_string: LRC formatted lyrics string
-            
+
         Returns:
             List of dicts: [{"timestamp_seconds": float, "text": str}, ...]
         """
@@ -473,12 +475,12 @@ class LyricsFetcher:
     ) -> Optional[Dict[str, Any]]:
         """
         Estimate a timestamp from plain (unsynced) lyrics using line position.
-        
+
         Args:
             transcript: The user's sung/typed lyrics
             plain_lyrics: Full plain lyrics text
             avg_duration: Estimated song duration in seconds (default 3:30)
-            
+
         Returns:
             Dict with estimated timestamp and confidence, or None
         """
@@ -486,7 +488,7 @@ class LyricsFetcher:
         if not transcript or not plain_lyrics:
             return None
 
-        lines = [l.strip() for l in plain_lyrics.split("\n") if l.strip()]
+        lines = [line_text.strip() for line_text in plain_lyrics.split("\n") if line_text.strip()]
         if not lines:
             return None
 

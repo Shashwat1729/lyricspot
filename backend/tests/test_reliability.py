@@ -13,12 +13,13 @@ _bs4_stub = MagicMock()
 _bs4_stub.BeautifulSoup = MagicMock()
 sys.modules.setdefault("bs4", _bs4_stub)
 
-import pytest
+import pytest  # noqa: E402
 
-from services.transcriber import TranscriptionService, TranscriptionResult
-from services.query_expansion import normalize_query, expand_queries, deduplicate_words
-from services.song_identifier import SongIdentifier, merge_candidates
-from services.timestamp_matcher import TimestampMatcher
+# noqa: E402 — sys.path/stub setup above must precede service imports
+from services.transcriber import TranscriptionService, TranscriptionResult  # noqa: E402
+from services.query_expansion import normalize_query, expand_queries, deduplicate_words  # noqa: E402
+from services.song_identifier import SongIdentifier, merge_candidates  # noqa: E402
+from services.timestamp_matcher import TimestampMatcher  # noqa: E402
 
 
 def _mock_model(payload):
