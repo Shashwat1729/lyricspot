@@ -80,10 +80,22 @@ If you run your own backend elsewhere, set it in **Backend settings** (top right
 
 ## Screenshots
 
-| Voice Mode | Lyrics Mode | Results |
+Live capture from the GitHub Pages site — real browser search via LRCLIB + iTunes, zero backend.
+
+| Voice Mode | Lyrics Mode | Lyrics Result |
 |:---:|:---:|:---:|
 | ![Voice](docs/screenshots/homepage.png) | ![Lyrics](docs/screenshots/lyrics-input.png) | ![Results](docs/screenshots/results.png) |
 
+<details>
+<summary>Backend settings (click to expand)</summary>
+<br>
+
+![Backend settings](docs/screenshots/settings.png)
+
+*Gear icon top-right — test and save a custom backend URL. Lyrics tab works immediately without one; voice falls back to in-browser speech recognition.*
+</details>
+
 ## Demo
 
-**Live site:** [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/)
+- **Live site:** [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/) — Lyrics tab works with zero setup; voice needs a backend or Chrome's built-in speech recognition.
+- **Interactive walkthrough:** [shashwat1729.github.io/lyricspot/demo/](https://shashwat1729.github.io/lyricspot/demo/) — 6-step slideshow generated from the live build.
