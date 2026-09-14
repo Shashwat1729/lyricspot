@@ -28,6 +28,14 @@ function timeoutSignal(ms: number): AbortSignal {
   return c.signal;
 }
 
+/** Canonical artist key: "The Beatles", "Beatles", "Beatles, The" -> "beatles". */
+function canonicalArtist(name: string): string {
+  let n = (name || "").toLowerCase().replace(/\s*-\s*topic$/i, "").replace(/\s*vevo$/i, "").trim();
+  if (n.endsWith(", the")) n = "the " + n.slice(0, -5);
+  if (n.startsWith("the ")) n = n.slice(4);
+  return n.trim();
+}
+
 /** Strip auto-generated channel suffixes ("Nirvana - Topic") from artist names. */
 function cleanArtist(name: string): string {
   return (name || "")
@@ -37,30 +45,22 @@ function cleanArtist(name: string): string {
 }
 
 /**
- * Query Deezer's free search for a track's popularity rank.
- * Returns 0..1 (log-normalized) or 0 when unavailable. Never throws.
+ * Browser-friendly popularity via iTunes Search (LRCLIB has no popularity
+ * signal, and Deezer is CORS-blocked from Pages). Returns 0..1. Never throws.
+ * Uses track position in iTunes results as a proxy — top hit is most popular.
  */
-async function deezerPopularity(track: string, artist: string): Promise<number> {
+async function itunesPopularity(track: string, artist: string): Promise<number> {
   try {
-    const q = artist
-      ? 'track:"' + track + '" artist:"' + artist + '"'
-      : 'track:"' + track + '"';
-    const r = await fetch("https://api.deezer.com/search?q=" + encodeURIComponent(q) + "&limit=3", { signal: timeoutSignal(4000) });
+    const term = artist ? track + " " + artist : track;
+    const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(term) + "&entity=song&limit=5", { signal: timeoutSignal(4000) });
     if (!r.ok) return 0;
     const j: any = await r.json();
     const list: any[] = j.data || [];
     for (const t of list) {
-      const dt = (t.title || "").toLowerCase();
-      if (dt && (track.toLowerCase().includes(dt) || dt.includes(track.toLowerCase()))) {
-        const rank = Number(t.rank) || 0;
-        if (rank > 0) return Math.min(1, Math.log10(rank + 1) / 6);
-        return 0;
-      }
+      const dt = (t.trackName || t.title || "").toLowerCase();
+      if (dt && (track.toLowerCase().includes(dt) || dt.includes(track.toLowerCase()))) return 1 - (list.indexOf(t) / 5);
     }
-    // Fallback: best rank among returned tracks, heavily discounted.
-    let best = 0;
-    for (const t of list) best = Math.max(best, Number(t.rank) || 0);
-    return best > 0 ? Math.min(1, Math.log10(best + 1) / 6) * 0.5 : 0;
+    return 0;
   } catch {
     return 0;
   }
@@ -79,7 +79,7 @@ async function rerankByPopularity(
   const withPop = await Promise.all(candidates.map(async (c) => {
     const track = c.item.trackName || "";
     const artist = cleanArtist(c.item.artistName || "");
-    const pop = await deezerPopularity(track, artist);
+    const pop = await itunesPopularity(track, artist);
     const titleBonus = tokenScore(contentWords.join(" "), track.toLowerCase());
     const final = 0.65 * c.score + 0.25 * pop + 0.10 * titleBonus;
     return { ...c, final };
@@ -178,7 +178,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const seenTracks = new Set<string>();
   for (const list of settled) {
     for (const item of list) {
-      const key = ((item.trackName || "").toLowerCase()) + "|" + ((item.artistName || "").toLowerCase());
+      const key = ((item.trackName || "").toLowerCase()) + "|" + canonicalArtist(item.artistName || "");
       if (!seenTracks.has(key) && data.length < 16) { data.push(item); seenTracks.add(key); }
     }
   }
