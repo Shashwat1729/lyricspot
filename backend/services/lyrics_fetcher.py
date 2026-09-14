@@ -41,7 +41,7 @@ class LyricsFetcher:
     _LRCLIB_CIRCUIT_COOLDOWN = 120  # seconds - longer cooldown since full outages last minutes
 
     # User agent for requests (LRCLIB recommends identifying your app)
-    USER_AGENT = "ContinueMySong/1.0 (https://github.com/continuemysong-ai)"
+    USER_AGENT = "LyricSpot/1.0 (https://github.com/Shashwat1729/lyricspot)"
     # Browser-like UA for Genius scraping (they block bot UAs)
     BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -160,7 +160,7 @@ class LyricsFetcher:
             url = f"{self.API_BASE}/search"
 
             response = self._session.get(url, params=params, timeout=self.REQUEST_TIMEOUT,
-                                         headers={"User-Agent": "ContinueMySong/1.0 (https://github.com/continuemysong)"})
+                                         headers={"User-Agent": "LyricSpot/1.0 (https://github.com/Shashwat1729/lyricspot)"})
             response.raise_for_status()
 
             results = response.json()
@@ -355,7 +355,7 @@ class LyricsFetcher:
                 url = f"{self.API_BASE}/search"
 
                 response = self._session.get(url, params=params, timeout=self.REQUEST_TIMEOUT,
-                                             headers={"User-Agent": "ContinueMySong/1.0 (https://github.com/continuemysong)"})
+                                             headers={"User-Agent": "LyricSpot/1.0 (https://github.com/Shashwat1729/lyricspot)"})
                 response.raise_for_status()
 
                 results = response.json()

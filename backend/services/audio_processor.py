@@ -64,6 +64,11 @@ class AudioProcessor:
 
         # Normalize amplitude to [-1, 1] range
         max_amplitude = np.max(np.abs(audio))
+        # Silence gate: near-silent recordings must NOT be amplified —
+        # boosting the noise floor makes Whisper hallucinate lyrics instead
+        # of correctly reporting no-speech (see TranscriptionResult).
+        if max_amplitude < 0.02:
+            return
         if max_amplitude > 0:
             audio = audio / max_amplitude * 0.95  # Leave slight headroom
 

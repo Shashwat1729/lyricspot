@@ -42,7 +42,9 @@ function cleanArtist(name: string): string {
  */
 async function deezerPopularity(track: string, artist: string): Promise<number> {
   try {
-    const q = 'track:"' + track + '" artist:"' + artist + '"';
+    const q = artist
+      ? 'track:"' + track + '" artist:"' + artist + '"'
+      : 'track:"' + track + '"';
     const r = await fetch("https://api.deezer.com/search?q=" + encodeURIComponent(q) + "&limit=3", { signal: timeoutSignal(4000) });
     if (!r.ok) return 0;
     const j: any = await r.json();
@@ -159,19 +161,26 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   queries.push(allWords.slice(0, 3).join(" "));
   queries.push(allWords.slice(0, 2).join(" "));
   const deduped = Array.from(new Set(queries.filter(Boolean)));
-  let data: any[] = [];
-  let seenTracks = new Set<string>();
-  for (const q of deduped) {
+  // Fan out all query variants in parallel (fail-soft each): sequential
+  // fetching was both slower and could stop early on junk results,
+  // starving better queries tried later.
+  const settled = await Promise.all(deduped.map(async (q) => {
     try {
       const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
-      if (!r.ok) continue;
+      if (!r.ok) return [];
       const d: any[] = await r.json();
-      for (const item of d) {
-        const key = (item.trackName || "") + "|" + (item.artistName || "");
-        if (!seenTracks.has(key) && data.length < 12) { data.push(item); seenTracks.add(key); }
-      }
-      if (data.length >= 8) break;
-    } catch {}
+      return Array.isArray(d) ? d : [];
+    } catch {
+      return [];
+    }
+  }));
+  const data: any[] = [];
+  const seenTracks = new Set<string>();
+  for (const list of settled) {
+    for (const item of list) {
+      const key = ((item.trackName || "").toLowerCase()) + "|" + ((item.artistName || "").toLowerCase());
+      if (!seenTracks.has(key) && data.length < 16) { data.push(item); seenTracks.add(key); }
+    }
   }
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
@@ -244,8 +253,23 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const top = ranked.slice(0, 3);
 
   onProgress?.("candidate_ready", "Fetching artwork...");
-  const results: BrowserCandidate[] = [];
-  for (const c of top) {
+  // Artwork for all top candidates in parallel (was sequential: 3 x 4s worst case).
+  const arts: string[] = await Promise.all(top.map(async (c) => {
+    const trackName: string = c.item.trackName || c.item.track || "Unknown";
+    const artistName: string = cleanArtist(c.item.artistName || c.item.artist || "");
+    try {
+      const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(4000) });
+      if (!r.ok) return "";
+      const j: any = await r.json();
+      return (j.results && j.results[0] && j.results[0].artworkUrl100
+        ? String(j.results[0].artworkUrl100).replace("100x100", "300x300")
+        : "");
+    } catch {
+      return "";
+    }
+  }));
+
+  const results: BrowserCandidate[] = top.map((c, i) => {
     const trackName: string = c.item.trackName || c.item.track || "Unknown";
     const artistName: string = cleanArtist(c.item.artistName || c.item.artist || "");
     const ts = c.lines[c.bestIdx].t;
@@ -259,21 +283,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     const before = c.lines.slice(Math.max(0, c.bestIdx - 2), c.bestIdx).map(l => l.text);
     const after = c.lines.slice(c.bestIdx + 1, c.bestIdx + 3).map(l => l.text);
 
-    // artwork + spotify via iTunes (best-effort, no hard failure)
-    let albumArt = "";
-    let spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
-    try {
-      const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(4000) });
-      if (r.ok) {
-        const j: any = await r.json();
-        if (j.results && j.results[0]) {
-          albumArt = (j.results[0].artworkUrl100 || "").replace("100x100", "300x300");
-          // iTunes gives us a real track, but keep Spotify as search so browser always has a link
-        }
-      }
-    } catch {}
-
-    results.push({
+    return {
       song: trackName,
       artist: artistName,
       confidence: Math.round(c.final * 100),
@@ -282,12 +292,12 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       lyrics_context: { before, matched: c.lines[c.bestIdx].text, after },
       occurrences: occs,
       ambiguous: occs.length > 1,
-      spotify_url: spotifyUrl,
-      album_art: albumArt,
+      spotify_url: "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName),
+      album_art: arts[i] || "",
       strategy: "lrclib",
       isBrowser: true,
-    });
-  }
+    };
+  });
 
   return { transcript: clean, results };
 }

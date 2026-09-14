@@ -35,6 +35,7 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
   const onResultRef = useRef(onResult);
   const onLoadingChangeRef = useRef(onLoadingChange);
   const recordingTimeRef = useRef(0);
+  const startTimeRef = useRef(0);
 
   useEffect(() => { onResultRef.current = onResult; }, [onResult]);
   useEffect(() => { onLoadingChangeRef.current = onLoadingChange; }, [onLoadingChange]);
@@ -210,24 +211,39 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
         handleUpload(blob);
       };
 
+      // Device disconnect mid-recording previously hung in "recording" forever.
+      (mediaRecorder as MediaRecorder).onerror = () => {
+        stopTracks();
+        stopTimer();
+        setError("Recording failed (microphone error). Please try again.");
+        setState("error");
+      };
+
       mediaRecorder.start(100);
       setState("recording");
       setRecordingTime(0);
       recordingTimeRef.current = 0;
+      startTimeRef.current = Date.now();
 
+      // Timestamp-based elapsed time: setInterval drifts and background tabs
+      // throttle timers, which previously prevented MAX_DURATION auto-stop
+      // from ever firing. 250ms tick also smooths the progress bar.
       timerRef.current = setInterval(() => {
-        setRecordingTime((prev) => {
-          const next = prev + 1;
-          recordingTimeRef.current = next;
-          if (next >= MAX_DURATION) {
-            mediaRecorderRef.current?.stop();
-            stopTracks();
-            stopTimer();
-            return MAX_DURATION;
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        recordingTimeRef.current = elapsed;
+        setRecordingTime(Math.min(elapsed, MAX_DURATION));
+        if (elapsed >= MAX_DURATION) {
+          try {
+            if (mediaRecorderRef.current?.state === "recording") {
+              mediaRecorderRef.current.stop();
+            }
+          } catch {
+            // Already stopped — cleanup below covers it.
           }
-          return next;
-        });
-      }, 1000);
+          stopTracks();
+          stopTimer();
+        }
+      }, 250);
     } catch (err) {
       if (err instanceof DOMException) {
         if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
@@ -264,7 +280,14 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
       setState("error");
       return;
     }
-    mediaRecorderRef.current?.stop();
+    // Guarded: double-tapping Stop previously threw InvalidStateError.
+    try {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+    } catch {
+      // Already inactive — tracks cleanup below still runs.
+    }
     stopTracks();
   }, [stopTimer, stopTracks]);
 
@@ -274,6 +297,8 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
     onLoadingChangeRef.current?.(false);
     setState("idle");
     setRecordingTime(0);
+    recordingTimeRef.current = 0;
+    startTimeRef.current = 0;
   }, []);
 
   const handleRetry = useCallback(() => {
@@ -281,6 +306,8 @@ export function MicRecorder({ onResult, onLoadingChange, onError, onRetry }: Mic
     setPermissionDenied(false);
     setState("idle");
     setRecordingTime(0);
+    recordingTimeRef.current = 0;
+    startTimeRef.current = 0;
     onRetry?.();
   }, [onRetry]);
 
