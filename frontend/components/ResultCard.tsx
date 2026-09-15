@@ -322,11 +322,24 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
           className="text-center text-[11px] text-gray-600 pt-2">
           Timestamp playback works best in Spotify desktop/mobile app
         </motion.p>
+
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
+          className="flex gap-2 pt-2">
+          <button type="button" onClick={onTryAgain}
+            className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white text-black text-sm font-bold hover:bg-gray-100 transition-all active:scale-[0.97]">
+            <RotateCcw className="w-4 h-4" />
+            <span>New search</span>
+          </button>
+          <button type="button" onClick={onTryAgain}
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white text-sm font-medium hover:bg-white/10 transition-all">
+            <span>Voice</span>
+          </button>
+        </motion.div>
       </motion.div>
 
       <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }}
         onClick={onTryAgain}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-5 py-3 rounded-full bg-[#111] border border-white/10 text-white text-sm font-medium shadow-xl hover:bg-[#1a1a1a] hover:border-white/20 transition-all active:scale-[0.97]">
+        className="fixed bottom-6 right-6 z-40 hidden sm:flex items-center gap-2 px-5 py-3 rounded-full bg-[#111] border border-white/10 text-white text-sm font-medium shadow-xl hover:bg-[#1a1a1a] hover:border-white/20 transition-all active:scale-[0.97]">
         <RotateCcw className="w-4 h-4" />
         <span>Try Again</span>
       </motion.button>
