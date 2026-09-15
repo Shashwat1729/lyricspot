@@ -168,8 +168,8 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
 
   if (!results || results.length === 0) return null;
 
-  const visibleResults = showAll ? results : results.slice(0, 3);
-  const hasMore = results.length > 3;
+  const visibleResults = showAll ? results : results.slice(0, 5);
+  const hasMore = results.length > 5;
   const topConfidence = results[0]?.confidence || 0;
 
   useEffect(() => {
@@ -314,7 +314,7 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
           <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
             onClick={() => setShowAll(!showAll)}
             className="w-full py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] transition-all">
-            {showAll ? "Show less" : "Show " + (results.length - 3) + " more result" + (results.length - 3 > 1 ? "s" : "")}
+            {showAll ? "Show less" : "Show " + (results.length - 5) + " more result" + (results.length - 5 > 1 ? "s" : "")}
           </motion.button>
         )}
 

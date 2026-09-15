@@ -278,10 +278,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       for (const c of titleScored) {
         const key = (c.item.trackName || "").toLowerCase().replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
         if (!seen.has(key)) { seen.add(key); top.push(c); }
-        if (top.length >= 3) break;
+        if (top.length >= 5) break;
       }
-      // Always show 3 if we have them — even low title scores are better than a single lonely card
-      const results = await Promise.all(top.slice(0, 3).map(async (c) => {
+      const results = await Promise.all(top.slice(0, 5).map(async (c) => {
         const trackName: string = c.item.trackName || "Unknown";
         const artistName: string = cleanArtist(c.item.artistName || "");
         let albumArt = c.item._itunesArt || "";
@@ -343,9 +342,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       (c as any).covers = covers.filter(Boolean);
       grouped.push(c);
     }
-    if (grouped.length >= 3) break;
+    if (grouped.length >= 5) break;
   }
-  const top = grouped.slice(0, 3);
+  const top = grouped.slice(0, 5);
 
   onProgress?.("candidate_ready", "Fetching artwork...");
   // Artwork for all top candidates in parallel (was sequential: 3 x 4s worst case).
