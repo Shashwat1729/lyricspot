@@ -105,12 +105,14 @@ async function rerankByPopularity(
   transcript: string,
   candidates: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[]
 ): Promise<RankedCandidate[]> {
-  const contentWords = transcript.toLowerCase().split(/\s+/).filter(w => w.length > 2);
   const withPop: RankedCandidate[] = await Promise.all(candidates.map(async (c) => {
     const track = c.item.trackName || "";
     const artist = cleanArtist(c.item.artistName || "");
     const pop = await itunesPopularity(track, artist);
-    const titleBonus = tokenScore(contentWords.join(" "), track.toLowerCase());
+    // Title bonus uses the FULL transcript (not content-word filtered) — for
+    // short queries like "give you up", the filtered "give" alone would give
+    // Dido a perfect title hit and Rick almost nothing.
+    const titleBonus = tokenScore(transcript.toLowerCase(), (track + " " + artist).toLowerCase());
     return { ...c, titleBonus, pop, final: 0 };
   }));
   const pops = withPop.map(c => c.pop);
