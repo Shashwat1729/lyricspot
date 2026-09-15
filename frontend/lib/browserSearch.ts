@@ -167,7 +167,44 @@ function parseSynced(synced: string): { t: number; text: string }[] {
   return lines;
 }
 
+function isDevanagari(s: string): boolean {
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) || 0;
+    if (cp >= 0x0900 && cp <= 0x097f) return true;
+  }
+  return false;
+}
+
+// Minimal Devanagari -> Latin for cross-script lyric matching (Hindi romanized
+// queries vs Devanagari synced lyrics). Covers the common characters in film
+// lyrics; not a full transliterator, just enough for token overlap.
+function romanizeDevanagari(s: string): string {
+  const map: Record<string, string> = {
+    "\u0905": "a", "\u0906": "aa", "\u0907": "i", "\u0908": "ii", "\u0909": "u", "\u090A": "uu",
+    "\u090F": "e", "\u0910": "ai", "\u0913": "o", "\u0914": "au",
+    "\u0915": "ka", "\u0916": "kha", "\u0917": "ga", "\u0918": "gha", "\u0919": "nga",
+    "\u091A": "cha", "\u091B": "chha", "\u091C": "ja", "\u091D": "jha", "\u091E": "nya",
+    "\u091F": "ta", "\u0920": "tha", "\u0921": "da", "\u0922": "dha", "\u0923": "na",
+    "\u0924": "ta", "\u0925": "tha", "\u0926": "da", "\u0927": "dha", "\u0928": "na",
+    "\u092A": "pa", "\u092B": "pha", "\u092C": "ba", "\u092D": "bha", "\u092E": "ma",
+    "\u092F": "ya", "\u0930": "ra", "\u0932": "la", "\u0935": "va", "\u0936": "sha", "\u0937": "sha", "\u0938": "sa", "\u0939": "ha",
+    "\u093E": "aa", "\u093F": "i", "\u0940": "ii", "\u0941": "u", "\u0942": "uu", "\u0947": "e", "\u0948": "ai", "\u094B": "o", "\u094C": "au",
+    "\u094D": "", "\u0902": "n", "\u0901": "n", "\u093C": "",
+  };
+  let out = "";
+  for (const ch of s) out += map[ch] ?? (/[\u0900-\u097F]/.test(ch) ? " " : ch);
+  return out.replace(/\s+/g, " ").trim();
+}
+
 function tokenScore(a: string, b: string): number {
+  const aIsDeva = isDevanagari(a);
+  const bIsDeva = isDevanagari(b);
+  if (aIsDeva !== bIsDeva) {
+    // Cross-script: romanize the Devanagari side and retry
+    const ar = aIsDeva ? romanizeDevanagari(a) : a;
+    const br = bIsDeva ? romanizeDevanagari(b) : b;
+    return tokenScore(ar, br);
+  }
   const cleanA = a.toLowerCase().split(/\s+/).filter(Boolean);
   const cleanB = b.toLowerCase().split(/\s+/).filter(Boolean);
   const ta = new Set(cleanA);
@@ -175,7 +212,6 @@ function tokenScore(a: string, b: string): number {
   if (ta.size === 0 || tb.size === 0) return 0;
   let inter = 0;
   ta.forEach(w => { if (tb.has(w)) inter++; });
-  // Full containment: treat as near-verbatim (BM25 would give high IDF here).
   if (inter === ta.size) return 0.92;
   // BM25-inspired: term saturation + length normalization.
   // Short exact lines like "hello" (1 word) should not outrank a focused
