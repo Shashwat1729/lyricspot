@@ -267,13 +267,12 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // them even though LRCLIB found them by title.
   if (!scored.length) {
     const titleScored: { item: any; score: number }[] = [];
-    for (const item of data.slice(0, 12)) {
+    for (const item of data) {
       const s = tokenScore(clean, (item.trackName || "") + " " + (item.artistName || ""));
-      if (s >= 0.35) titleScored.push({ item, score: s });
+      titleScored.push({ item, score: s });
     }
     titleScored.sort((a, b) => b.score - a.score);
     if (titleScored.length) {
-      // Deduplicate same title (covers) — keep highest per normalized title
       const seen = new Set<string>();
       const top: typeof titleScored = [];
       for (const c of titleScored) {
@@ -281,7 +280,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
         if (!seen.has(key)) { seen.add(key); top.push(c); }
         if (top.length >= 3) break;
       }
-      const results = await Promise.all(top.map(async (c) => {
+      // Always show 3 if we have them — even low title scores are better than a single lonely card
+      const results = await Promise.all(top.slice(0, 3).map(async (c) => {
         const trackName: string = c.item.trackName || "Unknown";
         const artistName: string = cleanArtist(c.item.artistName || "");
         let albumArt = c.item._itunesArt || "";
