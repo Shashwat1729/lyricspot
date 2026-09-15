@@ -147,21 +147,29 @@ function parseSynced(synced: string): { t: number; text: string }[] {
 }
 
 function tokenScore(a: string, b: string): number {
-  const ta = new Set(a.toLowerCase().split(/\s+/).filter(Boolean));
-  const tb = new Set(b.toLowerCase().split(/\s+/).filter(Boolean));
+  const cleanA = a.toLowerCase().split(/\s+/).filter(Boolean);
+  const cleanB = b.toLowerCase().split(/\s+/).filter(Boolean);
+  const ta = new Set(cleanA);
+  const tb = new Set(cleanB);
   if (ta.size === 0 || tb.size === 0) return 0;
   let inter = 0;
   ta.forEach(w => { if (tb.has(w)) inter++; });
-  // Full containment: every word of the short query appears in the line
-  // (e.g. "hey jude" inside "Na-na-na-na, hey Jude") — treat as near-verbatim.
+  // Full containment: treat as near-verbatim (BM25 would give high IDF here).
   if (inter === ta.size) return 0.92;
+  // BM25-inspired: term saturation + length normalization.
+  // Short exact lines like "hello" (1 word) should not outrank a focused
+  // 6-word verse that contains the same rare word.
   const prec = inter / ta.size;
   const rec = inter / tb.size;
   const f1 = prec + rec === 0 ? 0 : (2 * prec * rec) / (prec + rec);
+  // Length penalty: long lines that only partially match are less relevant
+  // (BM25's b * |D|/avgdl term). Short query in long verse is okay via
+  // containment above; this penalizes the remaining partial matches.
+  const lenNorm = 1 - 0.08 * Math.max(0, cleanB.length - cleanA.length - 2);
   const al = a.toLowerCase();
   const bl = b.toLowerCase();
-  const sub = bl.includes(al) || al.includes(bl) ? 0.15 : 0;
-  return Math.min(1, f1 + sub);
+  const sub = bl.includes(al) || al.includes(bl) ? 0.12 : 0;
+  return Math.min(1, Math.max(0, f1 * lenNorm + sub));
 }
 
 function bestLine(transcript: string, lines: { t: number; text: string }[]): { idx: number; score: number } | null {
