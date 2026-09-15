@@ -27,12 +27,28 @@ function timeoutSignal(ms: number): AbortSignal {
   return c.signal;
 }
 
-/** Canonical artist key: "The Beatles", "Beatles", "Beatles, The" -> "beatles". */
+/** Canonical artist key: dedupes "The Beatles" / "Beatles, The" / comma/ampersand variants. */
 function canonicalArtist(name: string): string {
   let n = (name || "").toLowerCase().replace(/\s*-\s*topic$/i, "").replace(/\s*vevo$/i, "").trim();
   if (n.endsWith(", the")) n = "the " + n.slice(0, -5);
   if (n.startsWith("the ")) n = n.slice(4);
-  return n.trim();
+  // "Shashwat, Arijit, Irshad" vs "Shashwat Arijit Irshad" -> same key
+  n = n.replace(/[,&]/g, " ").replace(/\band\b/g, " ");
+  n = n.replace(/\s+/g, " ").trim();
+  // Order-insensitive for multi-artist credits: sorted tokens
+  const parts = n.split(" ").filter(Boolean).sort();
+  return parts.join(" ");
+}
+
+/** True for boilerplate/header lines that LRCLIB sometimes includes. */
+function isBoilerplate(text: string): boolean {
+  const t = text.toLowerCase();
+  if (t.length < 3) return true;
+  if (/genius romanizations|you might also like|get tickets|ishq jalakar|karvaan/i.test(t)) return true;
+  if (/^\s*[-–—\s]*$/.test(t)) return true;
+  // "Arijit Singh & Armaan Khan - Gehra Hua (Romanized)" style header, not a lyric
+  if (/ - .*\(romanized\)/i.test(t) && t.split(/\s+/).length <= 10) return true;
+  return false;
 }
 
 /** Strip auto-generated channel suffixes ("Nirvana - Topic") from artist names. */
@@ -211,7 +227,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     if (item.instrumental === true) continue;
     const synced: string = item.syncedLyrics || "";
     const plain: string = item.plainLyrics || "";
-    const lines = synced ? parseSynced(synced) : plain.split("\n").map((t: string, i: number) => ({ t: i * 3, text: t.trim() })).filter((l: any) => l.text);
+    let lines = synced ? parseSynced(synced) : plain.split("\n").map((t: string, i: number) => ({ t: i * 3, text: t.trim() })).filter((l: any) => l.text);
+    lines = lines.filter(l => !isBoilerplate(l.text));
     if (!lines.length) continue;
     const best = bestLine(clean, lines);
     if (!best) continue;
