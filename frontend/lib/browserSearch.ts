@@ -150,10 +150,12 @@ function tokenScore(a: string, b: string): number {
   if (ta.size === 0 || tb.size === 0) return 0;
   let inter = 0;
   ta.forEach(w => { if (tb.has(w)) inter++; });
+  // Full containment: every word of the short query appears in the line
+  // (e.g. "hey jude" inside "Na-na-na-na, hey Jude") — treat as near-verbatim.
+  if (inter === ta.size) return 0.92;
   const prec = inter / ta.size;
   const rec = inter / tb.size;
   const f1 = prec + rec === 0 ? 0 : (2 * prec * rec) / (prec + rec);
-  // substring bonus
   const al = a.toLowerCase();
   const bl = b.toLowerCase();
   const sub = bl.includes(al) || al.includes(bl) ? 0.15 : 0;
