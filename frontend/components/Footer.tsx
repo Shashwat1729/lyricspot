@@ -17,9 +17,6 @@ export function Footer() {
           <span>&copy; {new Date().getFullYear()} ContinueMySong</span>
         </p>
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5 text-gray-600">
-            Made with <Heart className="w-3 h-3 text-red-500/70" /> and AI
-          </span>
           <a
             href="https://github.com/Shashwat1729/lyricspot"
             target="_blank"

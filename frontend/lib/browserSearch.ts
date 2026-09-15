@@ -266,43 +266,53 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // repeat the title in the synced lyrics, so lyric-only scoring can miss
   // them even though LRCLIB found them by title.
   if (!scored.length) {
-    let bestTitle: { item: any; score: number } | null = null;
-    for (const item of data.slice(0, 5)) {
+    const titleScored: { item: any; score: number }[] = [];
+    for (const item of data.slice(0, 12)) {
       const s = tokenScore(clean, (item.trackName || "") + " " + (item.artistName || ""));
-      if (!bestTitle || s > bestTitle.score) bestTitle = { item, score: s };
+      if (s >= 0.35) titleScored.push({ item, score: s });
     }
-    if (bestTitle && bestTitle.score >= 0.35) {
-      const item = bestTitle.item;
-      const trackName: string = item.trackName || "Unknown";
-      const artistName: string = cleanArtist(item.artistName || "");
-      let albumArt = "";
-      let spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
-      try {
-        const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(4000) });
-        if (r.ok) {
-          const j: any = await r.json();
-          if (j.results && j.results[0]) albumArt = (j.results[0].artworkUrl100 || "").replace("100x100", "300x300");
+    titleScored.sort((a, b) => b.score - a.score);
+    if (titleScored.length) {
+      // Deduplicate same title (covers) — keep highest per normalized title
+      const seen = new Set<string>();
+      const top: typeof titleScored = [];
+      for (const c of titleScored) {
+        const key = (c.item.trackName || "").toLowerCase().replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
+        if (!seen.has(key)) { seen.add(key); top.push(c); }
+        if (top.length >= 3) break;
+      }
+      const results = await Promise.all(top.map(async (c) => {
+        const trackName: string = c.item.trackName || "Unknown";
+        const artistName: string = cleanArtist(c.item.artistName || "");
+        let albumArt = c.item._itunesArt || "";
+        if (!albumArt) {
+          try {
+            const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(3000) });
+            if (r.ok) {
+              const j: any = await r.json();
+              if (j.results && j.results[0]) albumArt = (j.results[0].artworkUrl100 || "").replace("100x100", "300x300");
+            }
+          } catch {}
         }
-      } catch {}
-      return {
-        transcript: clean,
-        results: [{
+        const spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
+        return {
           song: trackName,
           artist: artistName,
-          confidence: Math.round(bestTitle.score * 100),
+          confidence: Math.round(c.score * 100),
           timestamp: 5,
           timestamp_display: fmt(5),
           timestamp_estimated: true,
           lyrics_context: { before: [], matched: trackName, after: [] },
-          occurrences: [{ timestamp: 5, match_score: Math.round(bestTitle.score * 100), matched_line: trackName }],
+          occurrences: [{ timestamp: 5, match_score: Math.round(c.score * 100), matched_line: trackName }],
           ambiguous: false,
           spotify_url: spotifyUrl,
           album_art: albumArt,
           strategy: "lrclib-title",
-          covers: [],
+          covers: [] as string[],
           isBrowser: true as const,
-        }],
-      };
+        };
+      }));
+      return { transcript: clean, results };
     }
     throw new Error("No close lyric matches. Try a longer or clearer phrase.");
   }

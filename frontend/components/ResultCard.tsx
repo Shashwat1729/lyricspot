@@ -278,9 +278,19 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
                   )}
 
                   {result.covers && result.covers.length > 0 && (
-                    <div className="mb-3 text-[11px] text-gray-500">
-                      <span className="uppercase tracking-wider text-[10px]">Also covered by</span> {result.covers.join(", ")}
-                    </div>
+                    <details className="mb-3 group/covers">
+                      <summary className="list-none cursor-pointer text-[11px] text-green-400/90 hover:text-green-400 flex items-center gap-1">
+                        <span className="group-open/covers:rotate-90 transition-transform inline-block">▸</span>
+                        {result.covers.length} cover{result.covers.length === 1 ? "" : "s"} — view
+                      </summary>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {result.covers.map((name) => (
+                          <span key={name} className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-gray-300 px-2 py-0.5 rounded-full">
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    </details>
                   )}
 
                   {trackId && index === 0 && <SpotifyEmbed trackId={trackId} timestamp={result.timestamp} />}
