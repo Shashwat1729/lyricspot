@@ -1,0 +1,232 @@
+{
+  "description": "LyricSpot ranking evaluation dataset — curated to avoid title/chorus bias. Each case uses a NON-CHORUS / mid-verse lyric fragment (not the song title) and tests lyric-content-first ranking across languages (romanized).",
+  "cases": [
+    {
+      "id": "en_01_bohemian_rhapsody_verse",
+      "language": "en",
+      "query": "mama just killed a man",
+      "expected_song": "Bohemian Rhapsody",
+      "expected_artist": "Queen",
+      "note": "Verse 1 line — not chorus, not title. Must beat any title match like 'Mama'.",
+      "lyrics_snippet": "mama just killed a man put a gun against his head"
+    },
+    {
+      "id": "en_02_lose_yourself_verse2",
+      "language": "en",
+      "query": "palms are sweaty knees weak arms are heavy",
+      "expected_song": "Lose Yourself",
+      "expected_artist": "Eminem",
+      "note": "Iconic verse opening — not title. Tests long distinctive phrase handling.",
+      "lyrics_snippet": "his palms are sweaty knees weak arms are heavy theres vomit on his sweater already"
+    },
+    {
+      "id": "en_03_wonderwall_verse",
+      "language": "en",
+      "query": "today was gonna be the day",
+      "expected_song": "Wonderwall",
+      "expected_artist": "Oasis",
+      "note": "Verse line containing common words but distinctive phrase. Common-word penalty must not kill it.",
+      "lyrics_snippet": "today was gonna be the day that theyd throw it back to you"
+    },
+    {
+      "id": "en_04_hello_verse_not_chorus",
+      "language": "en",
+      "query": "they say that times supposed to heal ya",
+      "expected_song": "Hello",
+      "expected_artist": "Adele",
+      "note": "Mid-verse from Hello — not the chorus 'hello from the other side'. Tests non-popular lyric section.",
+      "lyrics_snippet": "they say that time's supposed to heal ya but i ain't done much healing"
+    },
+    {
+      "id": "en_05_yesterday_verse",
+      "language": "en",
+      "query": "suddenly im not half the man i used to be",
+      "expected_song": "Yesterday",
+      "expected_artist": "The Beatles",
+      "note": "Verse line — not title word. Tests apostrophe/punctuation normalization.",
+      "lyrics_snippet": "suddenly i'm not half the man i used to be there's a shadow hanging over me"
+    },
+    {
+      "id": "en_06_hotel_california_verse",
+      "language": "en",
+      "query": "warm smell of colitas rising up through the air",
+      "expected_song": "Hotel California",
+      "expected_artist": "Eagles",
+      "note": "Verse 1 distinctive imagery — not title.",
+      "lyrics_snippet": "warm smell of colitas rising up through the air up ahead in the distance i saw a shimmering light"
+    },
+    {
+      "id": "en_07_imagine_verse2",
+      "language": "en",
+      "query": "imagine theres no countries it isnt hard to do",
+      "expected_song": "Imagine",
+      "expected_artist": "John Lennon",
+      "note": "Verse 2 — not chorus.",
+      "lyrics_snippet": "imagine there's no countries it isn't hard to do nothing to kill or die for"
+    },
+    {
+      "id": "en_08_short_ambiguous",
+      "language": "en",
+      "query": "stay with me",
+      "expected_song": null,
+      "expected_artist": null,
+      "note": "Short ambiguous 3-word query — should NOT be high confidence. Multiple Sam Smith / others share this lyric. Expect low/uncertain, multiple results.",
+      "lyrics_snippet": null,
+      "expect_low_confidence": true
+    },
+    {
+      "id": "en_09_common_words",
+      "language": "en",
+      "query": "i love you",
+      "expected_song": null,
+      "expected_artist": null,
+      "note": "Ultra-common phrase — inherently ambiguous. Must not give high confidence to arbitrary title match.",
+      "lyrics_snippet": null,
+      "expect_low_confidence": true
+    },
+    {
+      "id": "en_10_partial_with_apostrophe",
+      "language": "en",
+      "query": "dont stop believin",
+      "expected_song": "Don't Stop Believin'",
+      "expected_artist": "Journey",
+      "note": "Missing apostrophe, partial — tests normalization.",
+      "lyrics_snippet": "don't stop believin hold on to that feeling"
+    },
+    {
+      "id": "hi_01_tum_hi_ho_verse",
+      "language": "hi",
+      "query": "hum tere bin ab reh nahi sakte",
+      "expected_song": "Tum Hi Ho",
+      "expected_artist": "Arijit Singh",
+      "note": "Hindi romanized — mid-verse, not title. Tests Hindi phonetic handling (hum/main variants).",
+      "lyrics_snippet": "hum tere bin ab reh nahi sakte tere bina kya wajood mera"
+    },
+    {
+      "id": "hi_02_kal_ho_naa_verse",
+      "language": "hi",
+      "query": "har ghadi badal raha hai roop zindagi",
+      "expected_song": "Kal Ho Naa Ho",
+      "expected_artist": "Sonu Nigam",
+      "note": "Hindi romanized verse — not title.",
+      "lyrics_snippet": "har ghadi badal raha hai roop zindagi chaav hai kabhi kabhi hai dhoop zindagi"
+    },
+    {
+      "id": "hi_03_chaiyya_chaiyya_verse",
+      "language": "hi",
+      "query": "jinke pairon mein payal hai",
+      "expected_song": "Chaiyya Chaiyya",
+      "expected_artist": "Sukhwinder Singh",
+      "note": "Verse line with repeated chorus not used as query.",
+      "lyrics_snippet": "jinke pairon mein payal hai chhan chhan ki aaye"
+    },
+    {
+      "id": "ko_01_dynamite_verse",
+      "language": "ko",
+      "query": "cause i i im in the stars tonight",
+      "expected_song": "Dynamite",
+      "expected_artist": "BTS",
+      "note": "Korean English-romanized verse — singing transcription style (stutter 'i i i').",
+      "lyrics_snippet": "cause i i i'm in the stars tonight so watch me bring the fire and set the night alight"
+    },
+    {
+      "id": "ko_02_gangnam_style_verse",
+      "language": "ko",
+      "query": "oppa gangnam style gangnam style",
+      "expected_song": "Gangnam Style",
+      "expected_artist": "PSY",
+      "note": "Korean romanized — repeated phrase handling.",
+      "lyrics_snippet": "oppa gangnam style gangnam style najeneun ttasaroun ingan jeogin yeoja"
+    },
+    {
+      "id": "es_01_despacito_verse",
+      "language": "es",
+      "query": "quiero respirar tu cuello despacito",
+      "expected_song": "Despacito",
+      "expected_artist": "Luis Fonsi",
+      "note": "Spanish verse — not chorus 'despacito'.",
+      "lyrics_snippet": "quiero respirar tu cuello despacito deja que te diga cosas al oido"
+    },
+    {
+      "id": "es_02_la_bamba_verse",
+      "language": "es",
+      "query": "yo no soy marinero soy capitan",
+      "expected_song": "La Bamba",
+      "expected_artist": "Ritchie Valens",
+      "note": "Spanish folk verse.",
+      "lyrics_snippet": "yo no soy marinero soy capitan soy capitan"
+    },
+    {
+      "id": "fr_01_la_vie_en_rose_verse",
+      "language": "fr",
+      "query": "quand il me prend dans ses bras",
+      "expected_song": "La Vie en Rose",
+      "expected_artist": "Édith Piaf",
+      "note": "French romanized without accents — verse. Tests accent stripping.",
+      "lyrics_snippet": "quand il me prend dans ses bras il me parle tout bas je vois la vie en rose"
+    },
+    {
+      "id": "fr_02_formidable_verse",
+      "language": "fr",
+      "query": "tu etais formidable jetais fort minable",
+      "expected_song": "Formidable",
+      "expected_artist": "Stromae",
+      "note": "French verse with accents removed.",
+      "lyrics_snippet": "tu étais formidable j'étais fort minable"
+    },
+    {
+      "id": "pt_01_garota_de_ipanema_verse",
+      "language": "pt",
+      "query": "olha que coisa mais linda mais cheia de graca",
+      "expected_song": "Garota de Ipanema",
+      "expected_artist": "Tom Jobim",
+      "note": "Portuguese verse.",
+      "lyrics_snippet": "olha que coisa mais linda mais cheia de graça é ela menina que vem e que passa"
+    },
+    {
+      "id": "pt_02_ai_se_eu_te_pego_verse",
+      "language": "pt",
+      "query": "nossa nossa assim voce me mata",
+      "expected_song": "Ai Se Eu Te Pego",
+      "expected_artist": "Michel Teló",
+      "note": "Portuguese verse with repeated words.",
+      "lyrics_snippet": "nossa nossa assim você me mata ai se eu te pego"
+    },
+    {
+      "id": "ja_01_sukiyaki_verse",
+      "language": "ja",
+      "query": "ue o muite arukou namida ga kobore nai you ni",
+      "expected_song": "Sukiyaki",
+      "expected_artist": "Kyu Sakamoto",
+      "note": "Japanese romanized verse.",
+      "lyrics_snippet": "ue o muite arukou namida ga kobore nai you ni omoidasu haru no hi hitoribocchi no yoru"
+    },
+    {
+      "id": "ja_02_first_love_verse",
+      "language": "ja",
+      "query": "saigo no kisu wa tabako no flavor ga shita",
+      "expected_song": "First Love",
+      "expected_artist": "Utada Hikaru",
+      "note": "Japanese romanized — iconic verse line, not title.",
+      "lyrics_snippet": "saigo no kisu wa tabako no flavor ga shita nigakute setsunai kaori"
+    },
+    {
+      "id": "en_11_misheard_transcription",
+      "language": "en",
+      "query": "there's a bathroom on the right",
+      "expected_song": "Bad Moon Rising",
+      "expected_artist": "Creedence Clearwater Revival",
+      "note": "Classic misheard lyric for 'there's a bad moon on the rise' — tests fuzzy matching.",
+      "lyrics_snippet": "there's a bad moon on the rise there's a bad moon on the rise"
+    },
+    {
+      "id": "en_12_repeated_chorus_not_title",
+      "language": "en",
+      "query": "na na na na na na na",
+      "expected_song": "Hey Jude",
+      "expected_artist": "The Beatles",
+      "note": "Repeated 'na' — tests repeated word handling without collapsing to karaoke.",
+      "lyrics_snippet": "na na na na na na na na hey jude"
+    }
+  ]
+}

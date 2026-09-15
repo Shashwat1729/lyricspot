@@ -31,6 +31,7 @@ from services.timestamp_matcher import TimestampMatcher
 from services.spotify_linker import SpotifyLinker
 from services.confidence_calculator import confidence_calculator
 from services.feedback_store import FeedbackStore
+from services.candidate_ranker import candidate_ranker, compute_confidence_label
 
 load_dotenv()
 
@@ -296,7 +297,7 @@ def _process_candidate(
     transcript: str,
     language: Optional[str] = None,
 ) -> dict:
-    """Process a single candidate: lyrics → timestamp → spotify → layered confidence scoring.
+    """Process a single candidate: lyrics → timestamp → spotify → metadata collection.
 
     Args:
         candidate: Raw candidate with song/artist plus optional
@@ -304,6 +305,10 @@ def _process_candidate(
             caller after grouping). Falls back to len(sources) or 1.
         transcript: Sanitized transcript text.
         language: Whisper-detected language tag (gates phonetic rules).
+    
+    Returns:
+        Enriched candidate with lyric evidence, timestamp, Spotify metadata.
+        Ranking happens later in the pipeline via candidate_ranker.
     """
     song = candidate["song"]
     artist = candidate["artist"]
@@ -321,12 +326,14 @@ def _process_candidate(
     lyrics_context = None
     lyrics_match_score = None
     exact_lyrics_match = False
+    lyrics_available = False
     occurrences: list = []
 
     try:
         lyrics_lines = lyrics_fetcher.fetch_synced_lyrics(song, artist)
         synced_match_result = None
         if lyrics_lines:
+            lyrics_available = True
             synced_match_result = timestamp_matcher.find_match(transcript, lyrics_lines, language)
             occurrences = timestamp_matcher.find_occurrences(transcript, lyrics_lines, language)
             if synced_match_result and synced_match_result["confidence"] >= 30:
@@ -347,6 +354,8 @@ def _process_candidate(
         synced_conf = synced_match_result["confidence"] if synced_match_result else 0
         if synced_conf < 70:
             plain_lyrics = lyrics_fetcher.fetch_plain_lyrics(song, artist)
+            if plain_lyrics:
+                lyrics_available = True
             transcript_lower = transcript.lower().strip()
             plain_lower = plain_lyrics.lower() if plain_lyrics else ""
 
@@ -405,12 +414,10 @@ def _process_candidate(
                     timestamp_estimated = True
 
         # If we fetched lyrics but transcript was NOT found in them → negative signal
-        if not exact_lyrics_match and lyrics_match_score is None:
+        if not exact_lyrics_match and lyrics_match_score is None and lyrics_available:
             # We tried but couldn't confirm lyrics contain the transcript
-            lyrics_were_available = bool(lyrics_lines)
-            if lyrics_were_available:
-                # Synced lyrics exist but don't match well → penalize
-                lyrics_match_score = 20
+            # Lyrics exist but don't match well → set low score as negative signal
+            lyrics_match_score = 20
     except Exception as e:
         logger.warning(f"Lyrics/timestamp error for {song}: {e}")
 
@@ -428,27 +435,11 @@ def _process_candidate(
     except Exception:
         pass
 
-    # === LAYERED CONFIDENCE CALCULATION ===
-    # source_count is the REAL distinct-strategy count attached by the caller
-    # after grouping — lyrics match dominates, agreement is supporting evidence.
-    match_confidence = confidence_calculator.calculate(
-        transcript=transcript,
-        song=song,
-        artist=artist,
-        lyrics_match_score=lyrics_match_score,
-        exact_lyrics_match=exact_lyrics_match,
-        search_confidence=search_confidence,
-        source_count=source_count,
-        spotify_popularity=spotify_popularity,
-        feedback_boost=feedback_boost,
-        has_timestamp=(timestamp > 0),
-        strategy=strategy,
-    )
-
+    # Return enriched candidate with all evidence for downstream ranking.
+    # The new ranking system will score this using candidate_ranker.
     return {
         "song": song,
         "artist": artist if artist and artist.lower() != "unknown" else "",
-        "confidence": match_confidence,
         "timestamp": timestamp,
         "timestamp_display": spotify_linker.format_timestamp(timestamp),
         "timestamp_estimated": timestamp_estimated,
@@ -460,12 +451,20 @@ def _process_candidate(
         "strategy": strategy,
         "sources": sorted(sources),
         "source_count": source_count,
+        # Evidence for ranking (used by candidate_ranker)
+        "lyrics_match_score": lyrics_match_score,
+        "exact_lyrics_match": exact_lyrics_match,
+        "lyrics_available": lyrics_available,
+        "search_confidence": search_confidence,
+        "spotify_popularity": spotify_popularity,
+        "feedback_boost": feedback_boost,
         "debug": {
             "lyrics_match_score": lyrics_match_score,
             "exact_lyrics_match": exact_lyrics_match,
             "search_prior": search_confidence,
             "source_count": source_count,
             "timestamp_quality": synced_match_result["confidence"] if synced_match_result else None,
+            "lyrics_available": lyrics_available,
         },
     }
 
@@ -534,8 +533,10 @@ async def _build_results(
             "results": [],
         }
 
-    # Get ALL candidate songs (up to 7 for better lyrics-verification coverage)
-    candidates = await asyncio.to_thread(song_identifier.identify_multiple, transcript, 7)
+    # Get ALL candidate songs (increased to 12 for better recall before ranking)
+    # The old system ranked by search_confidence, which is weak for lyric queries.
+    # The new system ranks AFTER lyric verification using multi-signal scoring.
+    candidates = await asyncio.to_thread(song_identifier.identify_multiple, transcript, 12)
 
     if not candidates:
         # No identification match — provide a Spotify search fallback
@@ -561,12 +562,13 @@ async def _build_results(
         c["source_count"] = len(_coverage.get(key, {c.get("strategy", "unknown")}))
 
     # For each candidate, process lyrics + timestamp + spotify (parallel via executor)
+    # Process up to 10 candidates (increased from 5) for better ranking coverage.
     results = []
     if _candidate_executor is not None:
         loop = asyncio.get_running_loop()
         tasks = [
             loop.run_in_executor(_candidate_executor, _process_candidate, c, transcript, language)
-            for c in candidates[:5]
+            for c in candidates[:10]
         ]
         settled = await asyncio.gather(*tasks, return_exceptions=True)
         for r in settled:
@@ -575,20 +577,16 @@ async def _build_results(
             else:
                 results.append(r)
     else:
-        for c in candidates[:5]:
+        for c in candidates[:10]:
             try:
                 results.append(_process_candidate(c, transcript, language))
             except Exception as e:
                 logger.warning(f"Candidate processing error in /identify: {e}")
 
-    # Deterministic sort: confidence desc, then song/artist (ties stable).
-    results.sort(
-        key=lambda x: (
-            -int(x.get("confidence", 0)),
-            x.get("song", "").lower(),
-            x.get("artist", "").lower(),
-        )
-    )
+    # === NEW RANKING SYSTEM ===
+    # Rank candidates using multi-signal lyric-content-first scoring.
+    # This replaces the old search-confidence-based ranking.
+    results = candidate_ranker.rank_candidates(results, transcript, language)
 
     # Prefer original artists: when two results share the same song title (normalized)
     # and similar confidence (within 5 pts), prefer the one with a cleaner title
@@ -612,19 +610,30 @@ async def _build_results(
     if not results:
         results = [_make_fallback_result(transcript, confidence=20)]
 
-    top_conf = int(results[0].get("confidence", 0))
-    second_conf = int(results[1].get("confidence", 0)) if len(results) > 1 else 0
-    margin = round(float(top_conf - second_conf), 1)
-    label = _confidence_label(top_conf, margin)
+    # Use ranking_score (from candidate_ranker) as the display confidence
+    top_conf = int(results[0].get("ranking_score", results[0].get("confidence", 0)))
+    second_conf = int(results[1].get("ranking_score", results[1].get("confidence", 0))) if len(results) > 1 else 0
+    
+    # Compute confidence label using the new system
+    label, margin = compute_confidence_label(
+        top_conf, second_conf, transcript,
+        high_threshold=CONFIDENCE_HIGH_THRESHOLD,
+        high_margin=CONFIDENCE_HIGH_MARGIN,
+    )
 
     logger.info(
         "identification_complete transcript_len=%d language=%s "
-        "transcription_confidence=%s top=%s - %s conf=%d margin=%.1f label=%s",
+        "transcription_confidence=%s top=%s - %s ranking_score=%d margin=%.1f label=%s",
         len(transcript), language,
         ("%.3f" % transcription_confidence) if transcription_confidence is not None else "n/a",
         results[0].get("song"), results[0].get("artist"),
         top_conf, margin, label,
     )
+
+    # Ensure results have "confidence" field for backward compatibility
+    for r in results:
+        if "ranking_score" in r and "confidence" not in r:
+            r["confidence"] = r["ranking_score"]
 
     return {
         "success": True,
@@ -638,6 +647,8 @@ async def _build_results(
             "transcription_confidence": transcription_confidence,
             "candidate_count": len(results),
             "top_sources": results[0].get("sources", []),
+            "ranking_method": "lyric_content_first",
+            "top_score_breakdown": results[0].get("score_breakdown", {}),
         },
         # Also provide the top result in flat format for backward compatibility
         "song": results[0]["song"],
@@ -801,7 +812,7 @@ async def identify_text_stream(request: Request, body: TextInput):
 
         try:
             candidates = await asyncio.wait_for(
-                asyncio.to_thread(song_identifier.identify_multiple, transcript, 7),
+                asyncio.to_thread(song_identifier.identify_multiple, transcript, 12),
                 timeout=60.0
             )
         except asyncio.TimeoutError:
@@ -812,7 +823,7 @@ async def identify_text_stream(request: Request, body: TextInput):
             yield emit({"stage": "complete", "results": [_make_fallback_result(transcript)]})
             return
 
-        top_candidates = candidates[:5]
+        top_candidates = candidates[:10]
 
         # True source coverage (same as non-streaming path).
         _coverage_sse: dict[tuple[str, str], set] = {}
@@ -863,13 +874,8 @@ async def identify_text_stream(request: Request, body: TextInput):
                     "total": len(top_candidates),
                 })
 
-        results.sort(
-            key=lambda x: (
-                -int(x.get("confidence", 0)),
-                x.get("song", "").lower(),
-                x.get("artist", "").lower(),
-            )
-        )
+        # NEW RANKING SYSTEM - same as non-streaming path
+        results = candidate_ranker.rank_candidates(results, transcript, language=None)
 
         # Apply same post-processing as non-streaming path
         results = _prefer_original_artist(results)
@@ -886,16 +892,19 @@ async def identify_text_stream(request: Request, body: TextInput):
                 deduped.append(r)
         results = _prefer_original_artist(deduped)
 
-        _top = int(results[0].get("confidence", 0)) if results else 0
-        _second = int(results[1].get("confidence", 0)) if len(results) > 1 else 0
+        _top = int(results[0].get("ranking_score", results[0].get("confidence", 0))) if results else 0
+        _second = int(results[1].get("ranking_score", results[1].get("confidence", 0))) if len(results) > 1 else 0
         _margin = round(float(_top - _second), 1)
+        _label, _ = compute_confidence_label(_top, _second, transcript,
+            high_threshold=CONFIDENCE_HIGH_THRESHOLD,
+            high_margin=CONFIDENCE_HIGH_MARGIN)
 
         yield emit({
             "stage": "complete",
             "results": results,
             "transcript": transcript,
             "success": True,
-            "confidence_label": _confidence_label(_top, _margin),
+            "confidence_label": _label,
             "margin": _margin,
         })
 
