@@ -84,12 +84,18 @@ async function itunesPopularity(track: string, artist: string): Promise<number> 
 }
 
 /**
- * Re-rank lyric candidates by evidence, not just lyric overlap:
- *   final = 0.65 * lyricMatch + 0.25 * popularity + 0.10 * titleBonus
- * Popularity (iTunes position) separates famous originals from obscure
- * covers. When popularity carries no signal (max spread < 0.2 — e.g. all
- * obscure long-tail tracks), its weight is dropped and lyric/title decide
- * alone, so unknown artists are never punished for being unknown.
+ * Dynamic rule-based re-ranking. Base weights are 0.65 lyric / 0.25
+ * popularity / 0.10 title, but rules shift them per query:
+ *
+ * Rule 1 — Exact hook (containment 0.92): lyric is near-verbatim, so
+ *          boost lyric to 0.80, cut popularity/title. Prevents a famous
+ *          but lyrically weaker cover from outranking the true hook.
+ * Rule 2 — Short query (<=3 words, e.g. "hey jude"): lyric is the only
+ *          reliable signal; popularity is noisy, so dampen it.
+ * Rule 3 — Long query (>=6 words): lyric is highly specific, keep it
+ *          dominant.
+ * Rule 4 — Flat popularity (spread < 0.2, all obscure): drop pop entirely,
+ *          renormalize the remaining two.
  */
 interface RankedCandidate {
   item: any;
@@ -105,23 +111,38 @@ async function rerankByPopularity(
   transcript: string,
   candidates: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[]
 ): Promise<RankedCandidate[]> {
+  const wordCount = transcript.trim().split(/\s+/).filter(Boolean).length;
+  const maxLyric = Math.max(...candidates.map(c => c.score), 0);
   const withPop: RankedCandidate[] = await Promise.all(candidates.map(async (c) => {
     const track = c.item.trackName || "";
     const artist = cleanArtist(c.item.artistName || "");
     const pop = await itunesPopularity(track, artist);
-    // Title bonus uses the FULL transcript (not content-word filtered) — for
-    // short queries like "give you up", the filtered "give" alone would give
-    // Dido a perfect title hit and Rick almost nothing.
     const titleBonus = tokenScore(transcript.toLowerCase(), (track + " " + artist).toLowerCase());
     return { ...c, titleBonus, pop, final: 0 };
   }));
   const pops = withPop.map(c => c.pop);
-  const spread = Math.max(...pops) - Math.min(...pops);
+  const spread = pops.length ? Math.max(...pops) - Math.min(...pops) : 0;
   const usePop = spread >= 0.2;
+
+  // Dynamic weights
+  let wLyric = 0.65, wPop = 0.25, wTitle = 0.10;
+  if (maxLyric >= 0.92) {
+    // Exact hook — lyric is decisive
+    wLyric = 0.80; wPop = 0.12; wTitle = 0.08;
+  } else if (wordCount <= 3) {
+    // Short query — lyric is king, popularity is noisy
+    wLyric = 0.75; wPop = 0.15; wTitle = 0.10;
+  } else if (wordCount >= 6) {
+    wLyric = 0.70; wPop = 0.18; wTitle = 0.12;
+  }
+  if (!usePop) {
+    // Renormalize without popularity so obscure artists aren't punished
+    const sum = wLyric + wTitle;
+    wLyric /= sum; wTitle /= sum; wPop = 0;
+  }
+
   for (const c of withPop) {
-    c.final = usePop
-      ? 0.65 * c.score + 0.25 * c.pop + 0.10 * c.titleBonus
-      : (0.65 * c.score + 0.10 * c.titleBonus) / 0.75;
+    c.final = wLyric * c.score + wPop * c.pop + wTitle * c.titleBonus;
   }
   withPop.sort((a, b) => b.final - a.final || b.score - a.score);
   return withPop;
