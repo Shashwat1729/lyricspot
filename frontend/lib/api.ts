@@ -118,6 +118,7 @@ export interface SongResult {
   album_art?: string;
   strategy: string;
   sources?: string[];
+  covers?: string[];
 }
 
 /** API response from /upload or /identify */

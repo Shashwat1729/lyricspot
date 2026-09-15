@@ -17,6 +17,8 @@ export interface BrowserCandidate {
   spotify_url: string;
   album_art: string;
   strategy: string;
+  covers?: string[];
+  isBrowser: true;
 }
 
 /** AbortSignal.timeout with fallback for older browsers. */
@@ -196,25 +198,47 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   queries.push(allWords.slice(0, 3).join(" "));
   queries.push(allWords.slice(0, 2).join(" "));
   const deduped = Array.from(new Set(queries.filter(Boolean)));
-  // Fan out all query variants in parallel (fail-soft each): sequential
-  // fetching was both slower and could stop early on junk results,
-  // starving better queries tried later.
-  const settled = await Promise.all(deduped.map(async (q) => {
-    try {
-      const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
-      if (!r.ok) return [];
-      const d: any[] = await r.json();
-      return Array.isArray(d) ? d : [];
-    } catch {
-      return [];
-    }
-  }));
+  // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
+  // title-based and often finds the famous original when LRCLIB returns
+  // only covers for the same lyric phrase.
+  const [lrclibSettled, itunesSettled] = await Promise.all([
+    Promise.all(deduped.map(async (q) => {
+      try {
+        const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
+        if (!r.ok) return [];
+        const d: any[] = await r.json();
+        return Array.isArray(d) ? d : [];
+      } catch {
+        return [];
+      }
+    })),
+    // iTunes: only 2 most focused queries to stay well under rate limits.
+    Promise.all(deduped.slice(0, 2).map(async (q) => {
+      try {
+        const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(q) + "&entity=song&limit=4", { signal: timeoutSignal(5000) });
+        if (!r.ok) return [];
+        const j: any = await r.json();
+        const list: any[] = j.results || [];
+        // Normalize iTunes shape to LRCLIB shape for downstream scoring.
+        return list.map((t: any) => ({
+          trackName: t.trackName || "",
+          artistName: t.artistName || "",
+          plainLyrics: "",
+          syncedLyrics: "",
+          _itunesArt: (t.artworkUrl100 || "").replace("100x100", "300x300"),
+          _itunesUrl: t.trackViewUrl || "",
+        }));
+      } catch {
+        return [];
+      }
+    })),
+  ]);
   const data: any[] = [];
   const seenTracks = new Set<string>();
-  for (const list of settled) {
+  for (const list of [...lrclibSettled, ...itunesSettled]) {
     for (const item of list) {
       const key = ((item.trackName || "").toLowerCase()) + "|" + canonicalArtist(item.artistName || "");
-      if (!seenTracks.has(key) && data.length < 16) { data.push(item); seenTracks.add(key); }
+      if (!seenTracks.has(key) && data.length < 20) { data.push(item); seenTracks.add(key); }
     }
   }
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
@@ -273,6 +297,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
           spotify_url: spotifyUrl,
           album_art: albumArt,
           strategy: "lrclib-title",
+          covers: [],
+          isBrowser: true as const,
         }],
       };
     }
@@ -284,8 +310,30 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // "Attention" vs covers literally titled after its hook). Deezer's free
   // search API exposes a per-track `rank` popularity score — no key needed.
   onProgress?.("candidate_ready", "Ranking by popularity...");
-  const ranked = await rerankByPopularity(clean, scored.slice(0, 6));
-  const top = ranked.slice(0, 3);
+  const ranked = await rerankByPopularity(clean, scored.slice(0, 10));
+  // Cover grouping: same title (normalized) by different artists counts as
+  // one song. Keep the most popular/high-scoring version on top, stash
+  // other artists as covers for the details view.
+  function normalizeTitle(t: string): string {
+    return (t || "").toLowerCase().replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  }
+  const grouped: typeof ranked = [];
+  const seenTitles = new Set<string>();
+  for (const c of ranked) {
+    const key = normalizeTitle(c.item.trackName || "");
+    if (!seenTitles.has(key)) {
+      seenTitles.add(key);
+      // Attach covers found under the same title
+      const covers = ranked
+        .filter(o => normalizeTitle(o.item.trackName || "") === key && o !== c)
+        .slice(0, 4)
+        .map(o => cleanArtist(o.item.artistName || ""));
+      (c as any).covers = covers.filter(Boolean);
+      grouped.push(c);
+    }
+    if (grouped.length >= 3) break;
+  }
+  const top = grouped.slice(0, 3);
 
   onProgress?.("candidate_ready", "Fetching artwork...");
   // Artwork for all top candidates in parallel (was sequential: 3 x 4s worst case).
@@ -330,6 +378,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       spotify_url: "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName),
       album_art: arts[i] || "",
       strategy: "lrclib",
+      covers: (c as any).covers || [],
+      isBrowser: true,
     };
   });
 

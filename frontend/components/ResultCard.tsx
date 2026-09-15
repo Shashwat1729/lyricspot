@@ -277,6 +277,12 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
                     </div>
                   )}
 
+                  {result.covers && result.covers.length > 0 && (
+                    <div className="mb-3 text-[11px] text-gray-500">
+                      <span className="uppercase tracking-wider text-[10px]">Also covered by</span> {result.covers.join(", ")}
+                    </div>
+                  )}
+
                   {trackId && index === 0 && <SpotifyEmbed trackId={trackId} timestamp={result.timestamp} />}
 
                   <div className="mt-4">
