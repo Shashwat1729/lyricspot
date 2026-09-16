@@ -1,5 +1,5 @@
 {
-  "description": "LyricSpot ranking evaluation dataset — curated to avoid title/chorus bias. Each case uses a NON-CHORUS / mid-verse lyric fragment (not the song title) and tests lyric-content-first ranking across languages (romanized).",
+  "description": "LyricSpot ranking evaluation dataset — curated to avoid title/chorus bias. Each case uses a NON-CHORUS / mid-verse lyric fragment (not the song title) and tests lyric-content-first ranking across languages (romanized). Cases with hard_negatives list plausible wrong candidates (title collisions, covers, popular lyric-poor songs) that the ranker must beat.",
   "cases": [
     {
       "id": "en_01_bohemian_rhapsody_verse",
@@ -227,6 +227,59 @@
       "expected_artist": "The Beatles",
       "note": "Repeated 'na' — tests repeated word handling without collapsing to karaoke.",
       "lyrics_snippet": "na na na na na na na na hey jude"
+    },
+    {
+      "id": "en_13_take_a_sad_song_hey_jude",
+      "language": "en",
+      "query": "take a sad song",
+      "expected_song": "Hey Jude",
+      "expected_artist": "The Beatles",
+      "note": "Canonical lyric-vs-title regression: exact Hey Jude lyric ('take a sad song and make it better') must beat title collisions like 'Sad Song' / 'Take Control'. Tests general lyric-content-first scoring, not a special case.",
+      "lyrics_snippet": "take a sad song and make it better",
+      "hard_negatives": [
+        {"song": "Sad Song", "artist": "We The Kings", "why": "title contains 'sad song' but lyrics lack the phrase"},
+        {"song": "Take Control", "artist": "Random Artist", "why": "title contains 'take' but lyrics lack the phrase"},
+        {"song": "Make It Better", "artist": "Another Artist", "why": "title matches later words of the lyric line"}
+      ]
+    },
+    {
+      "id": "en_14_title_lyric_collision",
+      "language": "en",
+      "query": "dancing in the dark",
+      "expected_song": "Dancing in the Dark",
+      "expected_artist": "Bruce Springsteen",
+      "note": "Query is both a famous title AND a lyric line — the correct song must win on combined lyric + metadata evidence while a same-title cover with poor lyric evidence loses.",
+      "lyrics_snippet": "i get up in the evening and i aint got nothing to say i come home in the morning i go to bed feeling the same way",
+      "hard_negatives": [
+        {"song": "Dancing in the Dark", "artist": "Karaoke Hits", "why": "same-title karaoke version with weak lyric evidence"},
+        {"song": "Dancing", "artist": "Popular Artist", "why": "partial title word with lyric-poor match"}
+      ]
+    },
+    {
+      "id": "en_15_cover_vs_original",
+      "language": "en",
+      "query": "imagine theres no heaven",
+      "expected_song": "Imagine",
+      "expected_artist": "John Lennon",
+      "note": "Original must beat same-lyric covers/karaoke via popularity + canonical signals when lyric evidence ties.",
+      "lyrics_snippet": "imagine there's no heaven it's easy if you try",
+      "hard_negatives": [
+        {"song": "Imagine", "artist": "Karaoke Hits", "why": "same lyrics, karaoke artist must lose to original"},
+        {"song": "Imagine", "artist": "Cover Band", "why": "same lyrics, obscure cover must lose to original"}
+      ]
+    },
+    {
+      "id": "en_16_fuzzy_transcription",
+      "language": "en",
+      "query": "take a sad song and make it batter",
+      "expected_song": "Hey Jude",
+      "expected_artist": "The Beatles",
+      "note": "Transcription error ('batter' for 'better') — fuzzy lyric similarity must still beat title-only matches.",
+      "lyrics_snippet": "take a sad song and make it better",
+      "hard_negatives": [
+        {"song": "Sad Song", "artist": "We The Kings", "why": "title collision must lose to fuzzy lyric match"},
+        {"song": "Batter", "artist": "Unknown Artist", "why": "title matches mis-transcribed word exactly"}
+      ]
     }
   ]
 }

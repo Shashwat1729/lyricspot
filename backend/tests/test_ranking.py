@@ -596,6 +596,73 @@ class TestRealWorldScenarios:
         assert ranked[0]["song"] == "Purple Haze", \
             "Fuzzy lyric match should beat exact title match of misheard word"
 
+    def test_take_a_sad_song_hey_jude(self):
+        """
+        Critical regression test: "take a sad song" is an exact lyric from Hey Jude
+        but should NOT be beaten by coincidental title matches like "Sad Song".
+        
+        This is the canonical test case for lyric-content-first ranking.
+        The query appears in Hey Jude's lyrics: "take a sad song and make it better"
+        """
+        candidates = [
+            {
+                "song": "Hey Jude",
+                "artist": "The Beatles",
+                "lyrics_match_score": 95,  # Exact lyric phrase match
+                "exact_lyrics_match": True,
+                "lyrics_available": True,
+                "search_confidence": 58,  # Modest prior - title doesn't contain query
+                "source_count": 2,
+                "spotify_popularity": 93,
+            },
+            {
+                "song": "Sad Song",  # Title contains words from query
+                "artist": "We The Kings",
+                "lyrics_match_score": 30,  # Lyrics don't contain the phrase
+                "exact_lyrics_match": False,
+                "lyrics_available": True,
+                "search_confidence": 88,  # High prior due to title match
+                "source_count": 2,
+                "spotify_popularity": 65,
+            },
+            {
+                "song": "Take Control",  # Title contains word from query
+                "artist": "Random Artist",
+                "lyrics_match_score": 25,
+                "exact_lyrics_match": False,
+                "lyrics_available": True,
+                "search_confidence": 82,
+                "source_count": 1,
+                "spotify_popularity": 45,
+            },
+            {
+                "song": "Make It Better",  # Later words from the lyric line
+                "artist": "Another Artist",
+                "lyrics_match_score": 28,
+                "exact_lyrics_match": False,
+                "lyrics_available": True,
+                "search_confidence": 75,
+                "source_count": 1,
+                "spotify_popularity": 38,
+            },
+        ]
+
+        query = "take a sad song"
+        ranked = candidate_ranker.rank_candidates(candidates, query)
+
+        # Hey Jude MUST rank first despite lower search_confidence
+        assert ranked[0]["song"] == "Hey Jude", \
+            f"'take a sad song' is exact Hey Jude lyric, must rank #1. Got: {[(c['song'], c['ranking_score']) for c in ranked[:3]]}"
+        
+        # Margin should be decisive when lyric evidence is this strong
+        margin = ranked[0]["ranking_score"] - ranked[1]["ranking_score"]
+        assert margin >= 25, \
+            f"Exact lyric match should dominate title matches by wide margin. Got margin={margin}"
+        
+        # Hey Jude should score high (exact match floor is 88)
+        assert ranked[0]["ranking_score"] >= 85, \
+            f"Exact lyric match should score >=85, got {ranked[0]['ranking_score']}"
+
 
 class TestScoreBreakdown:
     """Test that score breakdown is transparent and debuggable."""

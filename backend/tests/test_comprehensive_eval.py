@@ -333,3 +333,83 @@ class TestRomanizedAccentHandling:
         r_tu = candidate_ranker.rank_candidates([dict(c) for c in candidates], query_with_tu)
         # Both should score similarly high (within 5 pts) due to phonetic handling
         assert abs(r_too[0]["ranking_score"] - r_tu[0]["ranking_score"]) <= 5
+
+
+class TestRankingMetrics:
+    """Aggregate measurable ranking evaluation: Top-1/Top-3/Top-5, MRR, Recall@5."""
+
+    def test_ranking_metrics_topk_mrr_recall(self):
+        """Rank every decisive dataset case against its hard negatives.
+
+        Correct song gets exact lyric evidence with a modest search prior;
+        hard negatives (or synthetic distractors) get high title priors but
+        poor lyric evidence. A lyric-content-first ranker must still put the
+        correct song on top.
+        """
+        dataset = _load_dataset()["cases"]
+        decisive = [c for c in dataset if not c.get("expect_low_confidence") and c.get("expected_song")]
+        assert len(decisive) >= 20, f"Dataset needs >=20 decisive cases, has {len(decisive)}"
+
+        top1 = top3 = top5 = 0
+        reciprocal_ranks = []
+        failures = []
+        for case in decisive:
+            query = case["query"]
+            correct = {
+                "song": case["expected_song"],
+                "artist": case.get("expected_artist") or "",
+                "lyrics_match_score": 92,
+                "exact_lyrics_match": True,
+                "lyrics_available": True,
+                "search_confidence": 62,
+                "source_count": 2,
+                "spotify_popularity": 78,
+            }
+            negatives = case.get("hard_negatives") or []
+            if negatives:
+                distractors = [
+                    {
+                        "song": n["song"],
+                        "artist": n.get("artist", "Unknown Artist"),
+                        "lyrics_match_score": 25,
+                        "exact_lyrics_match": False,
+                        "lyrics_available": True,
+                        "search_confidence": 90,  # high title prior to tempt weak rankers
+                        "source_count": 1,
+                        "spotify_popularity": 40,
+                    }
+                    for n in negatives
+                ]
+            else:
+                distractors = _make_distractors(case["expected_song"], case.get("expected_artist") or "")
+            ranked = candidate_ranker.rank_candidates(
+                [correct] + distractors, query, language=case.get("language")
+            )
+            rank = next(
+                (i + 1 for i, c in enumerate(ranked) if c["song"] == case["expected_song"]),
+                len(ranked) + 1,
+            )
+            if rank == 1:
+                top1 += 1
+            else:
+                failures.append((case["id"], rank))
+            if rank <= 3:
+                top3 += 1
+            if rank <= 5:
+                top5 += 1
+            reciprocal_ranks.append(1.0 / rank)
+
+        n = len(decisive)
+        mrr = sum(reciprocal_ranks) / n
+        print(
+            f"\nRanking metrics over {n} cases: "
+            f"Top-1={top1}/{n} ({top1/n:.3f}) "
+            f"Top-3={top3}/{n} ({top3/n:.3f}) "
+            f"Top-5={top5}/{n} ({top5/n:.3f}) "
+            f"MRR={mrr:.3f} Recall@5={top5/n:.3f} "
+            f"failures={failures}"
+        )
+        assert top1 / n >= 0.85, f"Top-1 accuracy {top1}/{n} below 0.85: {failures}"
+        assert top3 / n >= 0.95, f"Top-3 accuracy {top3}/{n} below 0.95: {failures}"
+        assert top5 / n >= 0.95, f"Top-5 accuracy {top5}/{n} below 0.95 (Recall@5): {failures}"
+        assert mrr >= 0.90, f"MRR {mrr:.3f} below 0.90"

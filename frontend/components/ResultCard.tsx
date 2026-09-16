@@ -150,12 +150,38 @@ function LyricsContext({ context }: { context: { before: string[]; matched: stri
   );
 }
 
+const PAGE_INITIAL = 5;
+const PAGE_STEP = 3;
+
+function dedupeResults(list: SongResult[]): SongResult[] {
+  const seen = new Set<string>();
+  const out: SongResult[] = [];
+  for (const r of list || []) {
+    if (!r || (!r.song && !r.artist)) continue;
+    const key = ((r.song || '').toLowerCase().trim() + ' :: ' + (r.artist || '').toLowerCase().trim());
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+function resultKey(r: SongResult, index: number): string {
+  const base = (r.song || '?') + ' :: ' + (r.artist || 'unknown');
+  return base + ' :: ' + index;
+}
+
 export default function ResultCard({ results, transcript, onTryAgain, confidenceLabel }: ResultCardProps) {
-  const [showAll, setShowAll] = useState(false);
-  const [feedbackGiven, setFeedbackGiven] = useState<Record<number, "up" | "down">>({});
+  const [visibleCount, setVisibleCount] = useState(PAGE_INITIAL);
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, "up" | "down">>({});
   const [showConfetti, setShowConfetti] = useState(false);
   // Feedback needs the backend; probe once so the buttons don't silently die.
   const [feedbackOnline, setFeedbackOnline] = useState<boolean | null>(null);
+
+  // Stable ranked set for this search: dedupe defensively, never reorder here.
+  const ranked = dedupeResults(results || []);
+  // Fingerprint resets pagination only when a genuinely new search arrives.
+  const fingerprint = (transcript || '') + '|' + ranked.map((r) => (r.song || '') + '::' + (r.artist || '')).join(';');
 
   useEffect(() => {
     let cancelled = false;
@@ -166,18 +192,40 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
     return () => { cancelled = true; };
   }, []);
 
-  if (!results || results.length === 0) return null;
+  useEffect(() => {
+    setVisibleCount(PAGE_INITIAL);
+    setFeedbackGiven({});
+    setShowConfetti(false);
+  }, [fingerprint]);
 
-  const visibleResults = showAll ? results : results.slice(0, 5);
-  const hasMore = results.length > 5;
-  const topConfidence = results[0]?.confidence || 0;
+  const visibleResults = ranked.slice(0, visibleCount);
+  const hasMore = visibleCount < ranked.length;
+  const remaining = ranked.length - visibleCount;
+  const nextBatch = Math.min(PAGE_STEP, remaining);
+  const topConfidence = ranked[0]?.confidence || 0;
 
   useEffect(() => {
     if (topConfidence >= 80) {
       const timer = setTimeout(() => setShowConfetti(true), 500);
       return () => clearTimeout(timer);
     }
-  }, [topConfidence]);
+  }, [topConfidence, fingerprint]);
+
+  if (!ranked || ranked.length === 0) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}
+        className="w-full max-w-2xl mx-auto space-y-4 relative">
+        <div className="glass-premium rounded-xl px-5 py-8 text-center">
+          <p className="text-white text-sm font-medium">No matches found</p>
+          <p className="text-gray-400 text-xs mt-1">Try singing a longer or more distinctive part of the song.</p>
+          <button type="button" onClick={onTryAgain}
+            className="mt-4 px-5 py-2.5 rounded-xl bg-white text-black text-sm font-bold hover:bg-gray-100 transition-all active:scale-[0.97]">
+            Try again
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
 
   const formatTs = (sec: number | null) => {
     if (!sec || sec <= 0) return null;
@@ -206,15 +254,19 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
 
         <div className="space-y-3">
           <AnimatePresence>
-            {visibleResults.map((result, index) => {
+            <p className="text-center text-[11px] text-gray-500">
+            Showing {visibleResults.length} of {ranked.length} ranked match{ranked.length === 1 ? '' : 'es'}
+          </p>
+          {visibleResults.map((result, index) => {
               const trackId = extractSpotifyTrackId(result.spotify_url);
               const ts = formatTs(result.timestamp);
               const spotifyDeepLink = trackId && ts
                 ? "https://open.spotify.com/track/" + trackId + "?t=" + Math.floor(result.timestamp || 0)
                 : result.spotify_url;
+              const fbKey = resultKey(result, index);
 
               return (
-                <motion.div key={result.song + "-" + result.artist + "-" + index}
+                <motion.div key={fbKey}
                   initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                   transition={{ delay: 0.2 + index * 0.1 }}
                   className={"glass-premium rounded-xl p-5 transition-all duration-200 hover:border-white/10 hover:-translate-y-0.5 hover:shadow-lg " +
@@ -235,19 +287,19 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
                     )}
                     <div className="flex flex-col gap-1 ml-1" title={feedbackOnline === false ? "Feedback needs a backend connection" : undefined}>
                       <button onClick={() => {
-                        if (feedbackGiven[index] || feedbackOnline === false) return;
-                        setFeedbackGiven(prev => ({ ...prev, [index]: 'up' }));
+                        if (feedbackGiven[fbKey] || feedbackOnline === false) return;
+                        setFeedbackGiven(prev => ({ ...prev, [fbKey]: 'up' }));
                         submitFeedback(transcript, result.song, result.artist, 'up').catch(() => {});
-                      }} disabled={!!feedbackGiven[index] || feedbackOnline === false}
-                        className={'p-1 rounded transition-all ' + (feedbackGiven[index] === 'up' ? 'text-green-400 scale-110' : (feedbackGiven[index] || feedbackOnline === false) ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-green-400 hover:scale-110')}>
+                      }} disabled={!!feedbackGiven[fbKey] || feedbackOnline === false}
+                        className={'p-1 rounded transition-all ' + (feedbackGiven[fbKey] === 'up' ? 'text-green-400 scale-110' : (feedbackGiven[fbKey] || feedbackOnline === false) ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-green-400 hover:scale-110')}>
                         <ThumbsUp className="w-3.5 h-3.5" />
                       </button>
                       <button onClick={() => {
-                        if (feedbackGiven[index] || feedbackOnline === false) return;
-                        setFeedbackGiven(prev => ({ ...prev, [index]: 'down' }));
+                        if (feedbackGiven[fbKey] || feedbackOnline === false) return;
+                        setFeedbackGiven(prev => ({ ...prev, [fbKey]: 'down' }));
                         submitFeedback(transcript, result.song, result.artist, 'down').catch(() => {});
-                      }} disabled={!!feedbackGiven[index] || feedbackOnline === false}
-                        className={'p-1 rounded transition-all ' + (feedbackGiven[index] === 'down' ? 'text-red-400 scale-110' : (feedbackGiven[index] || feedbackOnline === false) ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-red-400 hover:scale-110')}>
+                      }} disabled={!!feedbackGiven[fbKey] || feedbackOnline === false}
+                        className={'p-1 rounded transition-all ' + (feedbackGiven[fbKey] === 'down' ? 'text-red-400 scale-110' : (feedbackGiven[fbKey] || feedbackOnline === false) ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-red-400 hover:scale-110')}>
                         <ThumbsDown className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -310,12 +362,18 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
           </AnimatePresence>
         </div>
 
-        {hasMore && (
+        {hasMore ? (
           <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
-            onClick={() => setShowAll(!showAll)}
+            onClick={() => setVisibleCount((c) => Math.min(c + PAGE_STEP, ranked.length))}
             className="w-full py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-white bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] transition-all">
-            {showAll ? "Show less" : "Show " + (results.length - 5) + " more result" + (results.length - 5 > 1 ? "s" : "")}
+            Load {nextBatch} more ({visibleResults.length} of {ranked.length} shown)
           </motion.button>
+        ) : (
+          ranked.length > PAGE_INITIAL && (
+            <p className="text-center text-[11px] text-gray-600">
+              You&apos;ve seen all {ranked.length} ranked results
+            </p>
+          )
         )}
 
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}

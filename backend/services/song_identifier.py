@@ -128,8 +128,13 @@ def merge_candidates(
             key=lambda s: STRATEGY_ORDER.index(s) if s in STRATEGY_ORDER else 99,
         )
 
+    # Prefer candidates found by MULTIPLE independent providers over a single
+    # high title-similarity hit. Search confidence is a weak title-based prior;
+    # provider agreement is stronger evidence the candidate is real. Lyric
+    # verification downstream makes the final call.
     candidates.sort(
         key=lambda x: (
+            -len(x.get("sources", [])),
             -int(x.get("confidence", 0)),
             x.get("song", "").lower(),
             x.get("artist", "").lower(),

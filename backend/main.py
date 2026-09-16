@@ -189,106 +189,72 @@ def _normalize_song_title(title: str) -> str:
     return t.strip()
 
 
-def _prefer_original_artist(results: list) -> list:
-    """Reorder near-duplicate song matches to prefer the most likely original recording.
+def _score_canonical(res: dict) -> int:
+    """Tie-break score preferring the most likely original recording.
 
-    Results are first grouped by normalized song title so alternate versions of the same
-    track can be compared together. When a group has multiple candidates with confidence
-    scores within a small range, this favors the entry that looks most canonical by using
-    Spotify popularity, direct track links, known artist names, and an iTunes canonical
-    artist lookup as tie-breakers while penalizing cover/karaoke-style metadata.
+    Pure function of already-fetched metadata (no network calls): Spotify
+    popularity, direct track URL, known artist, minus cover/karaoke penalties.
+    Used only to order same-title versions whose lyric evidence is tied.
+    """
+    score = 0
+    try:
+        popularity = spotify_linker.get_popularity(res.get("song", ""), res.get("artist", ""))
+    except Exception:
+        popularity = None
+    if popularity is not None:
+        score += popularity  # 0-100 boost
+    url = res.get("spotify_url", "")
+    if "/track/" in url:
+        score += 15
+    if res.get("artist") and res["artist"].lower() not in ("", "unknown"):
+        score += 5
+    artist_lower = (res.get("artist") or "").lower()
+    if any(kw in artist_lower for kw in ("cover", "karaoke", "tribute", "compilation", "tv", "url")):
+        score -= 30
+    song_lower = (res.get("song") or "").lower()
+    if any(kw in song_lower for kw in ("cover", "karaoke", "tribute", "remix")):
+        score -= 20
+    return score
+
+
+def _prefer_original_artist(results: list) -> list:
+    """Order same-title versions to prefer the most likely original recording.
+
+    Only swaps entries that share a normalized song title AND whose lyric-based
+    ranking scores are within a small margin. Swaps happen in place (members take
+    over each other's positions) so the global ranked order is otherwise stable:
+    a same-title group never jumps ahead of differently-titled songs that
+    outranked it on lyric evidence.
     """
     if len(results) <= 1:
         return results
 
-    # Group by normalized title
+    def _rank_score(r: dict) -> int:
+        for key in ("ranking_score", "confidence", "search_confidence"):
+            try:
+                return int(r.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                continue
+        return 0
+
+    # Group positions by normalized title
     groups: dict[str, list[int]] = defaultdict(list)
     for i, r in enumerate(results):
-        groups[_normalize_song_title(r["song"])].append(i)
+        groups[_normalize_song_title(r.get("song", ""))].append(i)
 
-    # For groups with >1 entry and similar confidence, pick the best
-    reordered = []
-    used = set()
-
-    # Pre-fetch canonical artist from iTunes for disambiguation
-    _itunes_canonical_cache: dict[str, str] = {}
-    def _get_canonical_artist(song_title: str) -> str:
-        """Query iTunes with just the song title — top result is usually the original."""
-        if song_title in _itunes_canonical_cache:
-            return _itunes_canonical_cache[song_title]
-        try:
-            import requests as _req
-            resp = _req.get(
-                "https://itunes.apple.com/search",
-                params={"term": song_title, "media": "music", "entity": "song", "limit": 1},
-                timeout=3
-            )
-            if resp.status_code == 200:
-                itunes_results = resp.json().get("results", [])
-                if itunes_results:
-                    canonical = itunes_results[0].get("artistName", "").lower()
-                    _itunes_canonical_cache[song_title] = canonical
-                    return canonical
-        except Exception:
-            pass
-        _itunes_canonical_cache[song_title] = ""
-        return ""
-
-    for i, r in enumerate(results):
-        if i in used:
+    reordered = list(results)
+    for norm, positions in groups.items():
+        if len(positions) < 2:
             continue
-        norm = _normalize_song_title(r["song"])
-        group_indices = groups[norm]
-        if len(group_indices) > 1:
-            # Get all in this group not yet used
-            candidates_in_group = [idx for idx in group_indices if idx not in used]
-            if len(candidates_in_group) > 1:
-                # Check if they're within 5 confidence points
-                confs = [results[idx]["confidence"] for idx in candidates_in_group]
-                if max(confs) - min(confs) <= 5:
-                    # Score each: prefer Spotify popularity, direct track URL, known artist
-                    def _rank(idx):
-                        res = results[idx]
-                        score = 0
-                        # PRIMARY: Spotify popularity (0-100) — strongest signal for originals
-                        popularity = spotify_linker.get_popularity(res["song"], res.get("artist", ""))
-                        if popularity is not None:
-                            score += popularity  # 0-100 boost
-                        else:
-                            # FALLBACK: iTunes canonical artist match
-                            canonical = _get_canonical_artist(res["song"])
-                            if canonical and res.get("artist"):
-                                artist_lower = res["artist"].lower()
-                                if artist_lower == canonical or canonical in artist_lower or artist_lower in canonical:
-                                    score += 50  # Strong boost for matching iTunes #1 artist
-                                else:
-                                    score += 5  # Small boost for existing but non-canonical
-                        # SECONDARY: Direct track URL (verified on Spotify)
-                        url = res.get("spotify_url", "")
-                        if "/track/" in url:
-                            score += 15
-                        # Has a known artist
-                        if res.get("artist") and res["artist"].lower() not in ("", "unknown"):
-                            score += 5
-                        # Penalize cover/karaoke/compilation indicators
-                        artist_lower = (res.get("artist") or "").lower()
-                        if any(kw in artist_lower for kw in ("cover", "karaoke", "tribute", "compilation", "tv", "url")):
-                            score -= 30
-                        song_lower = res["song"].lower()
-                        if any(kw in song_lower for kw in ("cover", "karaoke", "tribute", "remix")):
-                            score -= 20
-                        return (-score, -res["confidence"], idx)  # idx as stable tiebreaker
-
-                    candidates_in_group.sort(key=_rank)
-                for idx in candidates_in_group:
-                    reordered.append(results[idx])
-                    used.add(idx)
-            else:
-                reordered.append(results[candidates_in_group[0]])
-                used.add(candidates_in_group[0])
-        else:
-            reordered.append(r)
-            used.add(i)
+        scores = [_rank_score(results[idx]) for idx in positions]
+        if max(scores) - min(scores) > 5:
+            continue  # lyric evidence clearly separates them — keep ranker order
+        ordered = sorted(
+            positions,
+            key=lambda idx: (-_score_canonical(results[idx]), -scores[positions.index(idx)], idx),
+        )
+        for pos, idx in zip(sorted(positions), ordered):
+            reordered[pos] = results[idx]
     return reordered
 
 
@@ -533,10 +499,10 @@ async def _build_results(
             "results": [],
         }
 
-    # Get ALL candidate songs (increased to 12 for better recall before ranking)
-    # The old system ranked by search_confidence, which is weak for lyric queries.
+    # Get a broad candidate pool (20 candidates) for better recall before ranking.
+    # Lyric-based queries need more candidates because early results may be title-only matches.
     # The new system ranks AFTER lyric verification using multi-signal scoring.
-    candidates = await asyncio.to_thread(song_identifier.identify_multiple, transcript, 12)
+    candidates = await asyncio.to_thread(song_identifier.identify_multiple, transcript, 20)
 
     if not candidates:
         # No identification match — provide a Spotify search fallback
@@ -562,13 +528,14 @@ async def _build_results(
         c["source_count"] = len(_coverage.get(key, {c.get("strategy", "unknown")}))
 
     # For each candidate, process lyrics + timestamp + spotify (parallel via executor)
-    # Process up to 10 candidates (increased from 5) for better ranking coverage.
+    # Process up to 15 candidates for comprehensive ranking coverage.
+    # This ensures good lyric matches aren't lost to title-only matches.
     results = []
     if _candidate_executor is not None:
         loop = asyncio.get_running_loop()
         tasks = [
             loop.run_in_executor(_candidate_executor, _process_candidate, c, transcript, language)
-            for c in candidates[:10]
+            for c in candidates[:15]
         ]
         settled = await asyncio.gather(*tasks, return_exceptions=True)
         for r in settled:
@@ -577,7 +544,7 @@ async def _build_results(
             else:
                 results.append(r)
     else:
-        for c in candidates[:10]:
+        for c in candidates[:15]:
             try:
                 results.append(_process_candidate(c, transcript, language))
             except Exception as e:
@@ -812,7 +779,7 @@ async def identify_text_stream(request: Request, body: TextInput):
 
         try:
             candidates = await asyncio.wait_for(
-                asyncio.to_thread(song_identifier.identify_multiple, transcript, 12),
+                asyncio.to_thread(song_identifier.identify_multiple, transcript, 20),
                 timeout=60.0
             )
         except asyncio.TimeoutError:
@@ -823,7 +790,7 @@ async def identify_text_stream(request: Request, body: TextInput):
             yield emit({"stage": "complete", "results": [_make_fallback_result(transcript)]})
             return
 
-        top_candidates = candidates[:10]
+        top_candidates = candidates[:15]
 
         # True source coverage (same as non-streaming path).
         _coverage_sse: dict[tuple[str, str], set] = {}
