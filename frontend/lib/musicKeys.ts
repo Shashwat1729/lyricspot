@@ -7,7 +7,10 @@
  * and never sent anywhere except the API provider itself.
  *
  * - Genius: upgrades lyric discovery from the scraped webpage endpoint to
- *   the official api.genius.com search. Free token at
+ *   the official api.genius.com search (GET /search?q=, Bearer token —
+ *   see https://docs.genius.com). This is the documented "Apps Without
+ *   Users" flow: a client access token from the API-client page covers
+ *   read-only /search with no scopes. Free token at
  *   https://genius.com/api-clients ("Generate Access Token").
  * - Musixmatch: `track.search?q_lyrics=` is a genuine lyrics -> song index
  *   (14M+ songs, same provider the Python backend uses). Free key at

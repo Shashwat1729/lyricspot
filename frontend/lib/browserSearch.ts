@@ -89,6 +89,8 @@ async function geniusLyricCandidates(transcript: string): Promise<{ title: strin
     for (const h of hits) {
       if (h?.type && h.type !== "song") continue;
       const res = h?.result || {};
+      // Instrumentals carry no lyrics to verify (same rule as LRCLIB below).
+      if (res.instrumental === true) continue;
       const title = (res.title || "").trim();
       const artist = (res.primary_artist?.name || res.artist_names || "").trim();
       if (!title || title.length > 80) continue;
