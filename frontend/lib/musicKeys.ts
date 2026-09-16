@@ -56,39 +56,81 @@ function envDefaults(): MusicKeys {
   };
 }
 
-export function getMusicKeys(): MusicKeys {
-  const fallback = envDefaults();
-  if (typeof window === "undefined") return { ...fallback };
+/** In-memory copy: keys keep working for the session even if the browser
+ *  blocks site storage (private mode, "clear on exit", quotas). */
+let memoryCache: MusicKeys | null = null;
+
+/** True when localStorage round-trips (write + read-back + delete). */
+export function storageWritable(): boolean {
+  if (typeof window === "undefined") return false;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...fallback };
-    const parsed = JSON.parse(raw) as Partial<MusicKeys>;
-    return {
-      genius: (parsed.genius || "").trim() || fallback.genius,
-      musixmatch: (parsed.musixmatch || "").trim() || fallback.musixmatch,
-      spotifyId: (parsed.spotifyId || "").trim() || fallback.spotifyId,
-      spotifySecret: (parsed.spotifySecret || "").trim() || fallback.spotifySecret,
-    };
+    const probe = "__lyricspot_probe__";
+    window.localStorage.setItem(probe, "1");
+    const ok = window.localStorage.getItem(probe) === "1";
+    window.localStorage.removeItem(probe);
+    return ok;
   } catch {
-    return { ...fallback };
+    return false;
   }
 }
 
-export function setMusicKeys(keys: MusicKeys): void {
-  if (typeof window === "undefined") return;
+function readStored(): MusicKeys | null {
+  if (typeof window === "undefined") return null;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      genius: (keys.genius || "").trim(),
-      musixmatch: (keys.musixmatch || "").trim(),
-      spotifyId: (keys.spotifyId || "").trim(),
-      spotifySecret: (keys.spotifySecret || "").trim(),
-    }));
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<MusicKeys>;
+    return {
+      genius: (parsed.genius || "").trim(),
+      musixmatch: (parsed.musixmatch || "").trim(),
+      spotifyId: (parsed.spotifyId || "").trim(),
+      spotifySecret: (parsed.spotifySecret || "").trim(),
+    };
   } catch {
-    // Private mode etc. — keys just won't persist.
+    return null;
+  }
+}
+
+export function getMusicKeys(): MusicKeys {
+  const fallback = envDefaults();
+  const stored = memoryCache || readStored();
+  if (!stored) return { ...fallback };
+  return {
+    genius: stored.genius || fallback.genius,
+    musixmatch: stored.musixmatch || fallback.musixmatch,
+    spotifyId: stored.spotifyId || fallback.spotifyId,
+    spotifySecret: stored.spotifySecret || fallback.spotifySecret,
+  };
+}
+
+/**
+ * Persist keys. Returns true only after read-back verification, so the UI
+ * can show "Saved" honestly instead of assuming the write stuck.
+ */
+export function setMusicKeys(keys: MusicKeys): boolean {
+  const clean: MusicKeys = {
+    genius: (keys.genius || "").trim(),
+    musixmatch: (keys.musixmatch || "").trim(),
+    spotifyId: (keys.spotifyId || "").trim(),
+    spotifySecret: (keys.spotifySecret || "").trim(),
+  };
+  memoryCache = { ...clean };
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+    const check = readStored();
+    return !!check
+      && check.genius === clean.genius
+      && check.musixmatch === clean.musixmatch
+      && check.spotifyId === clean.spotifyId
+      && check.spotifySecret === clean.spotifySecret;
+  } catch {
+    return false;
   }
 }
 
 export function clearMusicKeys(): void {
+  memoryCache = { ...EMPTY };
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(STORAGE_KEY);

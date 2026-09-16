@@ -13,6 +13,7 @@ import {
   getMusicKeys,
   setMusicKeys,
   clearMusicKeys,
+  storageWritable,
   testGeniusKey,
   testMusixmatchKey,
   testSpotifyKeys,
@@ -21,12 +22,17 @@ import {
 
 type KeyStatus = { ok: boolean; detail: string } | null;
 
+const EMPTY_KEYS: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "" };
+
 export function SettingsButton() {
   const [open, setOpen] = useState(false);
-  const [keys, setKeys] = useState<MusicKeys>({ genius: "", musixmatch: "", spotifyId: "", spotifySecret: "" });
+  // Hydrate from storage on mount so saved values show immediately.
+  const [keys, setKeys] = useState<MusicKeys>(() => getMusicKeys());
+  const [stored, setStored] = useState<MusicKeys>(() => getMusicKeys());
+  const [storageOk, setStorageOk] = useState<boolean | null>(null);
   const [status, setStatus] = useState<Record<string, KeyStatus>>({});
   const [testing, setTesting] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<"ok" | "fail" | null>(null);
   // Advanced: self-hosted backend URL (unchanged legacy behavior).
   const [url, setUrl] = useState(() => getApiBaseOverride() ?? "");
   const [backendStatus, setBackendStatus] = useState<KeyStatus>(null);
@@ -34,10 +40,13 @@ export function SettingsButton() {
   const [error, setError] = useState<string | null>(null);
 
   const openModal = () => {
-    setKeys(getMusicKeys());
+    const current = getMusicKeys();
+    setKeys(current);
+    setStored(current);
+    setStorageOk(storageWritable());
     setStatus({});
     setError(null);
-    setSaved(false);
+    setSaved(null);
     setUrl(getApiBaseOverride() ?? "");
     setBackendStatus(null);
     setOpen(true);
@@ -63,17 +72,21 @@ export function SettingsButton() {
   };
 
   const handleSave = () => {
-    setMusicKeys(keys);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    // setMusicKeys verifies via read-back; only claim "Saved" when proven.
+    const ok = setMusicKeys(keys);
+    setStored(getMusicKeys());
+    setStorageOk(storageWritable());
+    setSaved(ok ? "ok" : "fail");
+    setTimeout(() => setSaved(null), 4000);
   };
 
   const handleReset = () => {
     clearMusicKeys();
-    setKeys({ genius: "", musixmatch: "", spotifyId: "", spotifySecret: "" });
+    setKeys({ ...EMPTY_KEYS });
+    setStored(getMusicKeys());
     setStatus({});
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaved("ok");
+    setTimeout(() => setSaved(null), 2000);
   };
 
   const handleBackendTest = async () => {
@@ -98,20 +111,24 @@ export function SettingsButton() {
     value: string,
     onChange: (v: string) => void,
     onTest: () => void,
+    storedValue?: string,
   ) => (
     <div className="mb-3">
-      <label htmlFor={"key-" + id} className="block text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">
+      <label htmlFor={"key-" + id} className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">
         {label}
+        {storedValue ? (
+          <span title="A key is saved on this device" className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+        ) : null}
       </label>
       <div className="flex gap-2">
         <input
           id={"key-" + id}
           type="password"
-          autoComplete="off"
+          autoComplete="new-password"
           spellCheck={false}
           value={value}
-          onChange={(e) => { onChange(e.target.value); setSaved(false); }}
-          placeholder="Paste key here (optional)"
+          onChange={(e) => { onChange(e.target.value); setSaved(null); }}
+          placeholder={storedValue ? "Saved on this device (type to replace)" : "Paste key here (optional)"}
           className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-green-500/50 transition-colors"
         />
         <button
@@ -189,6 +206,14 @@ export function SettingsButton() {
                 Saved on this device only — never uploaded anywhere.
               </p>
 
+              {storageOk === false && (
+                <p className="mb-3 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+                  This browser is blocking site storage (private mode or “clear
+                  on exit”). Keys will work until you reload the page — allow
+                  site data for this site to keep them.
+                </p>
+              )}
+
               {renderKeyRow(
                 "musixmatch",
                 "Musixmatch key — lyric search",
@@ -196,6 +221,7 @@ export function SettingsButton() {
                 keys.musixmatch,
                 (v) => setKeys((k) => ({ ...k, musixmatch: v })),
                 () => runTest("musixmatch", () => testMusixmatchKey(keys.musixmatch || getMusicKeys().musixmatch)),
+                stored.musixmatch,
               )}
 
               {renderKeyRow(
@@ -205,21 +231,25 @@ export function SettingsButton() {
                 keys.genius,
                 (v) => setKeys((k) => ({ ...k, genius: v })),
                 () => runTest("genius", () => testGeniusKey(keys.genius || getMusicKeys().genius)),
+                stored.genius,
               )}
 
               <div className="mb-3">
-                <span className="block text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">
+                <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">
                   Spotify — popularity ranking
+                  {stored.spotifyId ? (
+                    <span title="Spotify credentials are saved on this device" className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+                  ) : null}
                 </span>
                 <div className="flex flex-col gap-2">
                   <input
                     id="key-spotify-id"
                     type="password"
-                    autoComplete="off"
+                    autoComplete="new-password"
                     spellCheck={false}
                     value={keys.spotifyId}
                     onChange={(e) => setKeys((k) => ({ ...k, spotifyId: e.target.value }))}
-                    placeholder="Client ID (optional)"
+                    placeholder={stored.spotifyId ? "Saved on this device (type to replace)" : "Client ID (optional)"}
                     aria-label="Spotify client ID"
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-green-500/50 transition-colors"
                   />
@@ -227,7 +257,7 @@ export function SettingsButton() {
                     <input
                       id="key-spotify-secret"
                       type="password"
-                      autoComplete="off"
+                      autoComplete="new-password"
                       spellCheck={false}
                       value={keys.spotifySecret}
                       onChange={(e) => setKeys((k) => ({ ...k, spotifySecret: e.target.value }))}
@@ -268,8 +298,8 @@ export function SettingsButton() {
                   onClick={handleSave}
                   className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold btn-premium text-black transition-all"
                 >
-                  {saved ? <Check className="w-4 h-4" /> : null}
-                  {saved ? "Saved" : "Save keys"}
+                  {saved === "ok" ? <Check className="w-4 h-4" /> : null}
+                  {saved === "ok" ? "Saved on this device" : "Save keys"}
                 </button>
                 <button
                   type="button"
@@ -281,6 +311,13 @@ export function SettingsButton() {
                 </button>
               </div>
 
+              {saved === "fail" && (
+                <p className="mt-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                  Could not save — this browser blocked site storage, so keys
+                  will only work until you reload. Allow site data (not private
+                  mode) to keep them.
+                </p>
+              )}
               {error && (
                 <p className="mt-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
                   {error}
