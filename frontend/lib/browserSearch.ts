@@ -46,11 +46,61 @@ function canonicalArtist(name: string): string {
 function isBoilerplate(text: string): boolean {
   const t = text.toLowerCase();
   if (t.length < 3) return true;
-  if (/genius romanizations|you might also like|get tickets|ishq jalakar|karvaan/i.test(t)) return true;
+  // Site-chrome patterns only (Genius page headers/promos) — never lyric words.
+  if (/genius romanizations|you might also like|get tickets/i.test(t)) return true;
   if (/^\s*[-–—\s]*$/.test(t)) return true;
   // "Arijit Singh & Armaan Khan - Gehra Hua (Romanized)" style header, not a lyric
   if (/ - .*\(romanized\)/i.test(t) && t.split(/\s+/).length <= 10) return true;
   return false;
+}
+
+/**
+ * Lyric discovery via Genius search (matches song LYRICS, no key needed).
+ * LRCLIB q-search is metadata-only (title/artist/album), so lyric queries
+ * whose words aren't in the title can never enter the pool from LRCLIB
+ * alone. Genius hits give (title, artist); we then pull their actual
+ * lyrics from LRCLIB structured search and verify locally — lyric evidence
+ * still makes the final call. Fully fail-soft: any failure returns [] and
+ * the pipeline behaves exactly as before.
+ */
+async function geniusLyricCandidates(transcript: string): Promise<{ title: string; artist: string }[]> {
+  try {
+    const r = await fetch("https://genius.com/api/search?q=" + encodeURIComponent(transcript) + "&per_page=8", { signal: timeoutSignal(7000) });
+    if (!r.ok) return [];
+    const j: any = await r.json();
+    const hits: any[] = j?.response?.hits || [];
+    const out: { title: string; artist: string }[] = [];
+    const seen = new Set<string>();
+    for (const h of hits) {
+      if (h?.type && h.type !== "song") continue;
+      const res = h?.result || {};
+      const title = (res.title || "").trim();
+      const artist = (res.primary_artist?.name || res.artist_names || "").trim();
+      if (!title || title.length > 80) continue;
+      const key = title.toLowerCase() + "|" + artist.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ title, artist });
+      if (out.length >= 8) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Pull LRCLIB lyric entries for a known (title, artist) via structured search. */
+async function lrclibLyricsFor(title: string, artist: string): Promise<any[]> {
+  try {
+    const url = "https://lrclib.net/api/search?track_name=" + encodeURIComponent(title)
+      + (artist ? "&artist_name=" + encodeURIComponent(artist) : "");
+    const r = await fetch(url, { signal: timeoutSignal(5000) });
+    if (!r.ok) return [];
+    const d: any = await r.json();
+    return Array.isArray(d) ? d.slice(0, 2) : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Strip auto-generated channel suffixes ("Nirvana - Topic") from artist names. */
@@ -105,11 +155,12 @@ interface RankedCandidate {
   titleBonus: number;
   pop: number;
   final: number;
+  estimated: boolean;
 }
 
 async function rerankByPopularity(
   transcript: string,
-  candidates: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[]
+  candidates: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number; estimated: boolean }[]
 ): Promise<RankedCandidate[]> {
   const wordCount = transcript.trim().split(/\s+/).filter(Boolean).length;
   const maxLyric = Math.max(...candidates.map(c => c.score), 0);
@@ -270,7 +321,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
   // title-based and often finds the famous original when LRCLIB returns
   // only covers for the same lyric phrase.
-  const [lrclibSettled, itunesSettled] = await Promise.all([
+  const [geniusPairs, lrclibSettled, itunesSettled] = await Promise.all([
+    geniusLyricCandidates(clean),
     Promise.all(deduped.map(async (q) => {
       try {
         const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
@@ -302,18 +354,31 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       }
     })),
   ]);
+  // Resolve Genius (title, artist) pairs to LRCLIB lyric entries (fail-soft
+  // each). These are lyric-motivated candidates, so they join the pool first.
+  onProgress?.("searching", "Checking lyric matches...");
+  const geniusEntries = await Promise.all(
+    geniusPairs.slice(0, 8).map(async (p) => {
+      const entries = await lrclibLyricsFor(p.title, p.artist);
+      for (const e of entries) e._genius = true;
+      return entries;
+    })
+  );
   const data: any[] = [];
   const seenTracks = new Set<string>();
-  for (const list of [...lrclibSettled, ...itunesSettled]) {
+  const pushList = (list: any[]) => {
     for (const item of list) {
       const key = ((item.trackName || "").toLowerCase()) + "|" + canonicalArtist(item.artistName || "");
-      if (!seenTracks.has(key) && data.length < 20) { data.push(item); seenTracks.add(key); }
+      if (!seenTracks.has(key) && data.length < 30) { data.push(item); seenTracks.add(key); }
     }
-  }
+  };
+  for (const entries of geniusEntries) pushList(entries);
+  for (const list of lrclibSettled) pushList(list);
+  for (const list of itunesSettled) pushList(list);
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
   onProgress?.("lyrics", "Matching lyrics...");
-  const scored: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number }[] = [];
+  const scored: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number; estimated: boolean }[] = [];
   // Score every collected candidate, not just the first few — the famous
   // original often sits below covers in raw search order.
   for (const item of data) {
@@ -327,7 +392,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     if (!best) continue;
     // keep only reasonable matches (lowered from 0.35 — Nirvana etc. hover ~0.30)
     if (best.score < 0.25) continue;
-    scored.push({ item, lines, bestIdx: best.idx, score: best.score });
+    // Plain-lyric lines get synthetic timestamps (i*3) — flag as estimated.
+    scored.push({ item, lines, bestIdx: best.idx, score: best.score, estimated: !synced });
   }
   // Title fallback: some tracks (e.g. "Smells Like Teen Spirit") never
   // repeat the title in the synced lyrics, so lyric-only scoring can miss
@@ -361,15 +427,19 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
           } catch {}
         }
         const spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
+        // Honest title-only fallback: no lyric evidence was found, so there
+        // is no matched line, no surrounding context, no timestamp, and no
+        // occurrences. Confidence is capped below the "uncertain" band and
+        // the UI hides the "You are HERE" box when lyrics_context is null.
         return {
           song: trackName,
           artist: artistName,
-          confidence: Math.round(c.score * 100),
-          timestamp: 5,
-          timestamp_display: fmt(5),
-          timestamp_estimated: true,
-          lyrics_context: { before: [], matched: trackName, after: [] },
-          occurrences: [{ timestamp: 5, match_score: Math.round(c.score * 100), matched_line: trackName }],
+          confidence: Math.min(Math.round(c.score * 100), 49),
+          timestamp: null,
+          timestamp_display: null,
+          timestamp_estimated: false,
+          lyrics_context: null,
+          occurrences: [],
           ambiguous: false,
           spotify_url: spotifyUrl,
           album_art: albumArt,
@@ -384,11 +454,12 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   }
 
   // Popularity re-rank: lyric match alone can't tell the famous original
-  // from an obscure cover with identical lyrics (e.g. Charlie Puth's
-  // "Attention" vs covers literally titled after its hook). Deezer's free
-  // search API exposes a per-track `rank` popularity score — no key needed.
+  // from an obscure cover with identical lyrics. iTunes Search position is
+  // used as the popularity proxy (no key needed, CORS-open).
   onProgress?.("candidate_ready", "Ranking by popularity...");
-  const ranked = await rerankByPopularity(clean, scored.slice(0, 10));
+  // Slice by LYRIC score, not raw search order — the true match often sits
+  // below title-coincidences in provider order.
+  const ranked = await rerankByPopularity(clean, scored.sort((a, b) => b.score - a.score).slice(0, 10));
   // Cover grouping: same title (normalized) by different artists counts as
   // one song. Keep the most popular/high-scoring version on top, stash
   // other artists as covers for the details view.
@@ -409,9 +480,11 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       (c as any).covers = covers.filter(Boolean);
       grouped.push(c);
     }
-    if (grouped.length >= 5) break;
+    // Up to 10 distinct songs: Top 5 initially, Load More pages the rest
+    // (5 → 8 → 10). Never fabricate — stop when the pool is exhausted.
+    if (grouped.length >= 10) break;
   }
-  const top = grouped.slice(0, 5);
+  const top = grouped;
 
   onProgress?.("candidate_ready", "Fetching artwork...");
   // Artwork for all top candidates in parallel (was sequential: 3 x 4s worst case).
@@ -450,12 +523,13 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       confidence: Math.round(c.final * 100),
       timestamp: ts,
       timestamp_display: fmt(ts),
+      timestamp_estimated: c.estimated,
       lyrics_context: { before, matched: c.lines[c.bestIdx].text, after },
       occurrences: occs,
       ambiguous: occs.length > 1,
       spotify_url: "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName),
       album_art: arts[i] || "",
-      strategy: "lrclib",
+      strategy: c.item._genius ? "genius" : "lrclib",
       covers: (c as any).covers || [],
       isBrowser: true,
     };
