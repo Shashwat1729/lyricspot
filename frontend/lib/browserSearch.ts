@@ -3,6 +3,14 @@
 // Browser-native identification: LRCLIB (lyrics) + iTunes (metadata/artwork).
 // All calls are direct fetches — no backend required. Spotify URL is a
 // search fallback (no Spotify API key needed in the browser).
+//
+// Visitor-owned FREE API keys (Settings → API keys, stored in their own
+// browser only) upgrade the engine where available: a Musixmatch key adds
+// genuine lyrics -> song search, a Genius token upgrades discovery to the
+// official API, and Spotify credentials upgrade the popularity signal.
+// Everything works keyless too (LRCLIB + iTunes + keyless Genius discovery).
+
+import { getMusicKeys, spotifyAppToken } from "./musicKeys";
 
 export interface BrowserCandidate {
   song: string;
@@ -65,7 +73,14 @@ function isBoilerplate(text: string): boolean {
  */
 async function geniusLyricCandidates(transcript: string): Promise<{ title: string; artist: string }[]> {
   try {
-    const r = await fetch("https://genius.com/api/search?q=" + encodeURIComponent(transcript) + "&per_page=8", { signal: timeoutSignal(7000) });
+    // Official API with the visitor's token when saved, else the keyless
+    // webpage endpoint (same lyric-matching index, may be CORS-blocked).
+    const geniusKey = getMusicKeys().genius;
+    const url = geniusKey
+      ? "https://api.genius.com/search?q=" + encodeURIComponent(transcript) + "&per_page=8"
+      : "https://genius.com/api/search?q=" + encodeURIComponent(transcript) + "&per_page=8";
+    const headers: Record<string, string> = geniusKey ? { Authorization: "Bearer " + geniusKey } : {};
+    const r = await fetch(url, { headers, signal: timeoutSignal(7000) });
     if (!r.ok) return [];
     const j: any = await r.json();
     const hits: any[] = j?.response?.hits || [];
@@ -103,6 +118,41 @@ async function lrclibLyricsFor(title: string, artist: string): Promise<any[]> {
   }
 }
 
+/**
+ * Lyric search via Musixmatch `track.search?q_lyrics=` using the visitor's
+ * own FREE key (Settings → API keys) — the same provider the Python backend
+ * uses. Fully fail-soft (keyless browsers simply skip it).
+ */
+async function musixmatchLyricCandidates(transcript: string): Promise<{ title: string; artist: string }[]> {
+  const key = getMusicKeys().musixmatch;
+  if (!key) return [];
+  try {
+    const url = "https://api.musixmatch.com/ws/1.1/track.search?q_lyrics=" + encodeURIComponent(transcript)
+      + "&page_size=8&page=1&s_track_rating=desc&apikey=" + encodeURIComponent(key);
+    const r = await fetch(url, { signal: timeoutSignal(8000) });
+    if (!r.ok) return [];
+    const j: any = await r.json().catch(() => null);
+    if (j?.message?.header?.status_code !== 200) return [];
+    const list: any[] = j?.message?.body?.track_list || [];
+    const out: { title: string; artist: string }[] = [];
+    const seen = new Set<string>();
+    for (const item of list) {
+      const t = item?.track || {};
+      const title = String(t.track_name || "").trim();
+      const artist = String(t.artist_name || "").trim();
+      if (!title || title.length > 80) continue;
+      const k = title.toLowerCase() + "|" + artist.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ title, artist });
+      if (out.length >= 8) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** Strip auto-generated channel suffixes ("Nirvana - Topic") from artist names. */
 function cleanArtist(name: string): string {
   return (name || "")
@@ -112,11 +162,33 @@ function cleanArtist(name: string): string {
 }
 
 /**
- * Browser-friendly popularity via iTunes Search (LRCLIB has no popularity
- * signal, and Deezer is CORS-blocked from Pages). Returns 0..1. Never throws.
- * Uses track position in iTunes results as a proxy — top hit is most popular.
+ * Popularity 0..1. Prefers the visitor's own Spotify app (exact popularity
+ * field) when Spotify keys are saved; otherwise falls back to the keyless
+ * iTunes Search position proxy. Never throws.
  */
-async function itunesPopularity(track: string, artist: string): Promise<number> {
+async function trackPopularity(track: string, artist: string): Promise<number> {
+  const keys = getMusicKeys();
+  if (keys.spotifyId && keys.spotifySecret) {
+    try {
+      const token = await spotifyAppToken(keys.spotifyId, keys.spotifySecret);
+      if (token) {
+        const q = "track:" + track + (artist ? " artist:" + artist : "");
+        const r = await fetch("https://api.spotify.com/v1/search?q=" + encodeURIComponent(q) + "&type=track&limit=1", {
+          headers: { Authorization: "Bearer " + token },
+          signal: timeoutSignal(5000),
+        });
+        if (r.ok) {
+          const j: any = await r.json();
+          const items: any[] = j?.tracks?.items || [];
+          if (items.length && typeof items[0].popularity === "number") {
+            return Math.max(0, Math.min(1, items[0].popularity / 100));
+          }
+        }
+      }
+    } catch {
+      // fall through to keyless proxy
+    }
+  }
   try {
     const term = artist ? track + " " + artist : track;
     const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(term) + "&entity=song&limit=5", { signal: timeoutSignal(4000) });
@@ -167,7 +239,7 @@ async function rerankByPopularity(
   const withPop: RankedCandidate[] = await Promise.all(candidates.map(async (c) => {
     const track = c.item.trackName || "";
     const artist = cleanArtist(c.item.artistName || "");
-    const pop = await itunesPopularity(track, artist);
+    const pop = await trackPopularity(track, artist);
     const titleBonus = tokenScore(transcript.toLowerCase(), (track + " " + artist).toLowerCase());
     return { ...c, titleBonus, pop, final: 0 };
   }));
@@ -204,6 +276,20 @@ function fmt(ts: number | null): string | null {
   const m = Math.floor(ts / 60);
   const s = Math.floor(ts % 60).toString().padStart(2, "0");
   return m + ":" + s;
+}
+
+/** iTunes artwork for one track (keyless). Empty string on any failure. */
+async function fetchArtwork(trackName: string, artistName: string, knownArt = ""): Promise<string> {
+  if (knownArt) return knownArt;
+  try {
+    const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(3000) });
+    if (!r.ok) return "";
+    const j: any = await r.json();
+    const first = j.results && j.results[0];
+    return first && first.artworkUrl100 ? String(first.artworkUrl100).replace("100x100", "300x300") : "";
+  } catch {
+    return "";
+  }
 }
 
 function parseSynced(synced: string): { t: number; text: string }[] {
@@ -321,8 +407,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
   // title-based and often finds the famous original when LRCLIB returns
   // only covers for the same lyric phrase.
-  const [geniusPairs, lrclibSettled, itunesSettled] = await Promise.all([
+  const [geniusPairs, musixPairs, lrclibSettled, itunesSettled] = await Promise.all([
     geniusLyricCandidates(clean),
+    musixmatchLyricCandidates(clean),
     Promise.all(deduped.map(async (q) => {
       try {
         const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
@@ -364,6 +451,13 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       return entries;
     })
   );
+  const musixEntries = await Promise.all(
+    musixPairs.slice(0, 8).map(async (p) => {
+      const entries = await lrclibLyricsFor(p.title, p.artist);
+      for (const e of entries) e._musix = true;
+      return entries;
+    })
+  );
   const data: any[] = [];
   const seenTracks = new Set<string>();
   const pushList = (list: any[]) => {
@@ -372,6 +466,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       if (!seenTracks.has(key) && data.length < 30) { data.push(item); seenTracks.add(key); }
     }
   };
+  for (const entries of musixEntries) pushList(entries);
   for (const entries of geniusEntries) pushList(entries);
   for (const list of lrclibSettled) pushList(list);
   for (const list of itunesSettled) pushList(list);
@@ -416,16 +511,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       const results = await Promise.all(top.slice(0, 5).map(async (c) => {
         const trackName: string = c.item.trackName || "Unknown";
         const artistName: string = cleanArtist(c.item.artistName || "");
-        let albumArt = c.item._itunesArt || "";
-        if (!albumArt) {
-          try {
-            const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(3000) });
-            if (r.ok) {
-              const j: any = await r.json();
-              if (j.results && j.results[0]) albumArt = (j.results[0].artworkUrl100 || "").replace("100x100", "300x300");
-            }
-          } catch {}
-        }
+        const albumArt = await fetchArtwork(trackName, artistName, c.item._itunesArt || "");
         const spotifyUrl = "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName);
         // Honest title-only fallback: no lyric evidence was found, so there
         // is no matched line, no surrounding context, no timestamp, and no
@@ -491,16 +577,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const arts: string[] = await Promise.all(top.map(async (c) => {
     const trackName: string = c.item.trackName || c.item.track || "Unknown";
     const artistName: string = cleanArtist(c.item.artistName || c.item.artist || "");
-    try {
-      const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(trackName + " " + artistName) + "&entity=song&limit=1", { signal: timeoutSignal(4000) });
-      if (!r.ok) return "";
-      const j: any = await r.json();
-      return (j.results && j.results[0] && j.results[0].artworkUrl100
-        ? String(j.results[0].artworkUrl100).replace("100x100", "300x300")
-        : "");
-    } catch {
-      return "";
-    }
+    return fetchArtwork(trackName, artistName);
   }));
 
   const results: BrowserCandidate[] = top.map((c, i) => {
@@ -529,7 +606,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       ambiguous: occs.length > 1,
       spotify_url: "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName),
       album_art: arts[i] || "",
-      strategy: c.item._genius ? "genius" : "lrclib",
+      strategy: c.item._musix ? "musixmatch" : c.item._genius ? "genius" : "lrclib",
       covers: (c as any).covers || [],
       isBrowser: true,
     };

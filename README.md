@@ -11,14 +11,14 @@
 
 Ever had a song stuck in your head but only remember one line? LyricSpot listens to you sing (or reads what you type), identifies the song using local AI, finds the exact second your lyric appears, and opens Spotify right at that timestamp.
 
-**No cloud, no tracking, no paid APIs.** With a backend running, everything stays on your machine. On GitHub Pages the Lyrics tab works directly in your browser (LRCLIB + iTunes) — still no keys, no tracking.
+**No cloud, no tracking, no paid APIs.** With a backend running, everything stays on your machine. On GitHub Pages the Lyrics tab works directly in your browser (Genius lyric discovery + LRCLIB + iTunes) — still no keys, no tracking.
 
 ## Features
 
 - **Voice Input** - Sing into your mic (3s min, 5-10s recommended, 15s max) — uses Whisper when a backend is connected, falls back to in-browser speech recognition on Pages
 - **Text Input** - Type whatever lyrics you remember — live lyric search with browser fallback
 - **Local AI** - OpenAI Whisper when a backend is running; browser Speech API as fallback on Pages
-- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch + Deezer + MusicBrainz (backend); LRCLIB + iTunes (browser)
+- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch + Deezer + MusicBrainz (backend); Genius + Musixmatch + LRCLIB + iTunes (browser, keys optional)
 - **Popularity-Aware Ranking** - Famous originals outrank obscure covers with identical lyrics
 - **Precise Timestamps** - Finds the exact second your lyric appears (including repeated choruses)
 - **Spotify Deep Link** - One click opens Spotify at the right timestamp
@@ -72,10 +72,22 @@ Copy backend/.env.example to backend/.env:
 
 **GitHub Pages (zero setup):** Static build at [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/) — no server needed.
 
-- **Lyrics tab** searches LRCLIB + iTunes directly from your browser, finds real songs with timestamps and artwork.
+- **Lyrics tab** searches Genius (lyric discovery) + LRCLIB (lyrics) + iTunes (metadata/artwork) directly from your browser, finds real songs with timestamps and artwork. No keys needed.
 - **Voice tab** tries the backend first; if unreachable, falls back to in-browser speech recognition piped into the same search.
 
-If you run your own backend elsewhere, set it in **Backend settings** (top right). That URL is saved on your device and takes precedence. Or host `backend/` once (HuggingFace Spaces / Render / Railway — Dockerfile already handles `PORT`, just set `CORS_ORIGINS=https://shashwat1729.github.io`) and bake it in with `NEXT_PUBLIC_API_URL=https://your-host npm run build`.
+## API keys (all free, all optional)
+
+The static site works with zero keys. To improve it, open **API keys** (top right) and paste any of these — they are stored only in your browser, never uploaded:
+
+| Key | What it unlocks | Where to get it (free) |
+|-----|-----------------|------------------------|
+| Musixmatch | Genuine lyrics → song search (same provider the backend uses) | developer.musixmatch.com (free tier: 2000 calls/day) |
+| Genius token | Upgrades lyric discovery to the official API | genius.com/api-clients → Generate Access Token |
+| Spotify ID + Secret | Popularity ranking (famous originals outrank covers) + artwork | developer.spotify.com/dashboard |
+
+Each row has a **Test** button so you can verify a key before saving. No paid APIs are used anywhere in this project.
+
+If you run your own backend elsewhere, set it under **API keys → Advanced** (top right). That URL is saved on your device and takes precedence. Or host `backend/` once (HuggingFace Spaces / Render / Railway — Dockerfile already handles `PORT`, just set `CORS_ORIGINS=https://shashwat1729.github.io`) and bake it in with `NEXT_PUBLIC_API_URL=https://your-host npm run build`.
 
 
 ## Screenshots
@@ -87,12 +99,12 @@ Live capture from the GitHub Pages site — real browser search via LRCLIB + iTu
 | ![Voice](docs/screenshots/homepage.png) | ![Lyrics](docs/screenshots/lyrics-input.png) | ![Results](docs/screenshots/results.png) |
 
 <details>
-<summary>Backend settings (click to expand)</summary>
+<summary>API keys settings (click to expand)</summary>
 <br>
 
-![Backend settings](docs/screenshots/settings.png)
+![API keys settings](docs/screenshots/settings.png)
 
-*Gear icon top-right — test and save a custom backend URL. Lyrics tab works immediately without one; voice falls back to in-browser speech recognition.*
+*Key icon top-right — paste free Musixmatch / Genius / Spotify keys and test each one. Lyrics tab works immediately without any key; voice falls back to in-browser speech recognition.*
 </details>
 
 ## Demo
