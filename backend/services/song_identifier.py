@@ -175,6 +175,9 @@ class SongIdentifier:
         # Optional API keys for enhanced identification
         self._audd_token = os.getenv("AUDD_API_TOKEN", "")
         self._musixmatch_key = os.getenv("MUSIXMATCH_API_KEY", "")
+        # Genius client access token (free, read-only /search — no scopes).
+        # Server-side Bearer calls have no CORS limits, unlike browsers.
+        self._genius_token = os.getenv("GENIUS_API_TOKEN", "")
         # Per-host rate limits (ms). MusicBrainz requires >=1000ms.
         self._rate_limiter = _RateLimiter({
             "musicbrainz": 1100,
@@ -383,21 +386,36 @@ class SongIdentifier:
             return []
 
     def _genius_search_multiple(self, query: str, original_transcript: str) -> list:
-        """Search Genius and return multiple results."""
+        """Search Genius and return multiple results.
+
+        Uses the official api.genius.com search with GENIUS_API_TOKEN when
+        set (read-only client token, no scopes needed); otherwise the keyless
+        webpage endpoint. Both match song lyrics server-side, where CORS
+        limits don't apply. Instrumentals are skipped (no lyrics to verify).
+        """
         try:
             self._rate_limiter.wait("genius")
             encoded_query = urllib.parse.quote(query)
-            url = f"https://genius.com/api/search?q={encoded_query}"
+            headers = None
+            if self._genius_token:
+                url = f"https://api.genius.com/search?q={encoded_query}&per_page=8"
+                headers = {"Authorization": f"Bearer {self._genius_token}"}
+            else:
+                url = f"https://genius.com/api/search?q={encoded_query}"
 
-            response = self._session.get(url, timeout=self.REQUEST_TIMEOUT)
+            response = self._session.get(url, headers=headers, timeout=self.REQUEST_TIMEOUT)
             response.raise_for_status()
 
             data = response.json()
             hits = data.get("response", {}).get("hits", [])
 
             results = []
-            for hit_data in hits[:5]:
+            for hit_data in hits[:8]:
+                if hit_data.get("type") and hit_data.get("type") != "song":
+                    continue
                 hit = hit_data.get("result", {})
+                if hit.get("instrumental") is True:
+                    continue
                 song_title = hit.get("title", "")
                 artist_name = hit.get("primary_artist", {}).get("name", "")
 
