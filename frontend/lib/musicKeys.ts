@@ -40,20 +40,37 @@ function timeoutSignal(ms: number): AbortSignal {
   return c.signal;
 }
 
+/**
+ * Build-time defaults for LOCAL testing only (frontend/.env.local,
+ * gitignored). Production Pages builds are made with that file moved aside,
+ * so these are empty there and Settings/localStorage is the only source.
+ * Saved keys in localStorage always win over these defaults.
+ */
+function envDefaults(): MusicKeys {
+  const env = (typeof process !== "undefined" && (process as any).env) || {};
+  return {
+    genius: String(env.NEXT_PUBLIC_GENIUS_TOKEN || "").trim(),
+    musixmatch: String(env.NEXT_PUBLIC_MUSIXMATCH_KEY || "").trim(),
+    spotifyId: String(env.NEXT_PUBLIC_SPOTIFY_ID || "").trim(),
+    spotifySecret: String(env.NEXT_PUBLIC_SPOTIFY_SECRET || "").trim(),
+  };
+}
+
 export function getMusicKeys(): MusicKeys {
-  if (typeof window === "undefined") return { ...EMPTY };
+  const fallback = envDefaults();
+  if (typeof window === "undefined") return { ...fallback };
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...EMPTY };
+    if (!raw) return { ...fallback };
     const parsed = JSON.parse(raw) as Partial<MusicKeys>;
     return {
-      genius: (parsed.genius || "").trim(),
-      musixmatch: (parsed.musixmatch || "").trim(),
-      spotifyId: (parsed.spotifyId || "").trim(),
-      spotifySecret: (parsed.spotifySecret || "").trim(),
+      genius: (parsed.genius || "").trim() || fallback.genius,
+      musixmatch: (parsed.musixmatch || "").trim() || fallback.musixmatch,
+      spotifyId: (parsed.spotifyId || "").trim() || fallback.spotifyId,
+      spotifySecret: (parsed.spotifySecret || "").trim() || fallback.spotifySecret,
     };
   } catch {
-    return { ...EMPTY };
+    return { ...fallback };
   }
 }
 
@@ -86,6 +103,9 @@ export function hasAnyKey(keys: MusicKeys): boolean {
 
 /** Test a Musixmatch key with a tiny lyric search (same call the engine makes). */
 export async function testMusixmatchKey(key: string): Promise<{ ok: boolean; detail: string }> {
+  if (!key.trim()) {
+    return { ok: false, detail: "Paste your key first: developer.musixmatch.com → My Apps → your app." };
+  }
   try {
     const r = await fetch(
       "https://api.musixmatch.com/ws/1.1/track.search?q_lyrics=" + encodeURIComponent("yesterday") + "&page_size=1&page=1&apikey=" + encodeURIComponent(key.trim()),
@@ -104,6 +124,9 @@ export async function testMusixmatchKey(key: string): Promise<{ ok: boolean; det
 
 /** Test a Genius token against the official search API. */
 export async function testGeniusKey(token: string): Promise<{ ok: boolean; detail: string }> {
+  if (!token.trim()) {
+    return { ok: false, detail: "Paste your token first: genius.com/api-clients → your app → Generate Access Token." };
+  }
   try {
     const r = await fetch("https://api.genius.com/search?q=" + encodeURIComponent("hey jude"), {
       headers: { Authorization: "Bearer " + token.trim() },
@@ -150,6 +173,9 @@ export async function spotifyAppToken(id: string, secret: string): Promise<strin
 
 /** Test Spotify id+secret by fetching an app token. */
 export async function testSpotifyKeys(id: string, secret: string): Promise<{ ok: boolean; detail: string }> {
+  if (!id.trim() || !secret.trim()) {
+    return { ok: false, detail: "Paste both Client ID and Client Secret first (developer.spotify.com/dashboard)." };
+  }
   spotifyTokenCache = null;
   const token = await spotifyAppToken(id, secret);
   if (!token) return { ok: false, detail: "Spotify rejected the credentials or is unreachable." };
