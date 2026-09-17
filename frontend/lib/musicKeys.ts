@@ -47,12 +47,19 @@ function timeoutSignal(ms: number): AbortSignal {
  * Saved keys in localStorage always win over these defaults.
  */
 function envDefaults(): MusicKeys {
-  const env = (typeof process !== "undefined" && (process as any).env) || {};
+  // NOTE: each key MUST be read via a literal `process.env.NEXT_PUBLIC_*`
+  // expression so Next.js inlines the value into the client bundle at build
+  // time. Dynamic member access (env[name]) is NOT inlined and always reads
+  // empty in the browser.
+  if (typeof process === "undefined" || !process.env) {
+    return { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "" };
+  }
+  const read = (v: string | undefined) => (v || "").trim();
   return {
-    genius: String(env.NEXT_PUBLIC_GENIUS_TOKEN || "").trim(),
-    musixmatch: String(env.NEXT_PUBLIC_MUSIXMATCH_KEY || "").trim(),
-    spotifyId: String(env.NEXT_PUBLIC_SPOTIFY_ID || "").trim(),
-    spotifySecret: String(env.NEXT_PUBLIC_SPOTIFY_SECRET || "").trim(),
+    genius: read(process.env.NEXT_PUBLIC_GENIUS_TOKEN),
+    musixmatch: read(process.env.NEXT_PUBLIC_MUSIXMATCH_KEY),
+    spotifyId: read(process.env.NEXT_PUBLIC_SPOTIFY_ID),
+    spotifySecret: read(process.env.NEXT_PUBLIC_SPOTIFY_SECRET),
   };
 }
 
@@ -164,23 +171,26 @@ export async function testMusixmatchKey(key: string): Promise<{ ok: boolean; det
   }
 }
 
-/** Test a Genius token against the official search API. */
+/**
+ * Test a Genius token against the official search API, using the same
+ * `access_token=` mechanism as the engine (header auth fails CORS
+ * preflight from browsers; query-param auth is CORS-readable).
+ */
 export async function testGeniusKey(token: string): Promise<{ ok: boolean; detail: string }> {
   if (!token.trim()) {
     return { ok: false, detail: "Paste your token first: genius.com/api-clients → your app → Generate Access Token." };
   }
   try {
-    const r = await fetch("https://api.genius.com/search?q=" + encodeURIComponent("hey jude"), {
-      headers: { Authorization: "Bearer " + token.trim() },
+    const r = await fetch("https://api.genius.com/search?q=" + encodeURIComponent("hey jude") + "&access_token=" + encodeURIComponent(token.trim()), {
       signal: timeoutSignal(12000),
     });
-    if (r.status === 401 || r.status === 403) return { ok: false, detail: "Genius rejected the token (unauthorized)." };
+    if (r.status === 401 || r.status === 403) return { ok: false, detail: "Genius rejected the token (unauthorized) — regenerate it on the API-client page." };
     if (!r.ok) return { ok: false, detail: "Genius request failed (HTTP " + r.status + ")." };
     const j: any = await r.json().catch(() => null);
     const n = j?.response?.hits?.length ?? 0;
     return { ok: true, detail: "Genius key works (" + n + " hits on probe)." };
   } catch {
-    return { ok: false, detail: "Cannot reach api.genius.com — it may block browsers (key still usable via backend)." };
+    return { ok: false, detail: "Cannot reach api.genius.com — check connection/ad-blocker (key still usable via backend)." };
   }
 }
 

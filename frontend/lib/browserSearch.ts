@@ -71,20 +71,24 @@ function isBoilerplate(text: string): boolean {
  * still makes the final call. Fully fail-soft: any failure returns [] and
  * the pipeline behaves exactly as before.
  */
-async function geniusLyricCandidates(transcript: string): Promise<{ title: string; artist: string }[]> {
+async function geniusLyricCandidates(transcript: string): Promise<{ title: string; artist: string; rank: number }[]> {
   try {
     // Official API with the visitor's token when saved, else the keyless
     // webpage endpoint (same lyric-matching index, may be CORS-blocked).
+    // NOTE: the token goes in `access_token=` (not the Authorization
+    // header) because header-auth triggers a CORS preflight that
+    // api.genius.com rejects, while simple GETs are CORS-readable —
+    // verified live in Chrome. Genius documents this fallback in
+    // docs.genius.com ("if you must"). Read-only token; TLS in transit.
     const geniusKey = getMusicKeys().genius;
     const url = geniusKey
-      ? "https://api.genius.com/search?q=" + encodeURIComponent(transcript) + "&per_page=8"
+      ? "https://api.genius.com/search?q=" + encodeURIComponent(transcript) + "&per_page=8&access_token=" + encodeURIComponent(geniusKey)
       : "https://genius.com/api/search?q=" + encodeURIComponent(transcript) + "&per_page=8";
-    const headers: Record<string, string> = geniusKey ? { Authorization: "Bearer " + geniusKey } : {};
-    const r = await fetch(url, { headers, signal: timeoutSignal(7000) });
+    const r = await fetch(url, { signal: timeoutSignal(7000) });
     if (!r.ok) return [];
     const j: any = await r.json();
     const hits: any[] = j?.response?.hits || [];
-    const out: { title: string; artist: string }[] = [];
+    const out: { title: string; artist: string; rank: number }[] = [];
     const seen = new Set<string>();
     for (const h of hits) {
       if (h?.type && h.type !== "song") continue;
@@ -97,7 +101,9 @@ async function geniusLyricCandidates(transcript: string): Promise<{ title: strin
       const key = title.toLowerCase() + "|" + artist.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ title, artist });
+      // Rank = position in the provider's own relevance order. Recorded so
+      // ranking can use it as a weak near-tie prior (never dominant).
+      out.push({ title, artist, rank: out.length });
       if (out.length >= 8) break;
     }
     return out;
@@ -125,7 +131,7 @@ async function lrclibLyricsFor(title: string, artist: string): Promise<any[]> {
  * own FREE key (Settings → API keys) — the same provider the Python backend
  * uses. Fully fail-soft (keyless browsers simply skip it).
  */
-async function musixmatchLyricCandidates(transcript: string): Promise<{ title: string; artist: string }[]> {
+async function musixmatchLyricCandidates(transcript: string): Promise<{ title: string; artist: string; rank: number }[]> {
   const key = getMusicKeys().musixmatch;
   if (!key) return [];
   try {
@@ -136,7 +142,7 @@ async function musixmatchLyricCandidates(transcript: string): Promise<{ title: s
     const j: any = await r.json().catch(() => null);
     if (j?.message?.header?.status_code !== 200) return [];
     const list: any[] = j?.message?.body?.track_list || [];
-    const out: { title: string; artist: string }[] = [];
+    const out: { title: string; artist: string; rank: number }[] = [];
     const seen = new Set<string>();
     for (const item of list) {
       const t = item?.track || {};
@@ -146,7 +152,7 @@ async function musixmatchLyricCandidates(transcript: string): Promise<{ title: s
       const k = title.toLowerCase() + "|" + artist.toLowerCase();
       if (seen.has(k)) continue;
       seen.add(k);
-      out.push({ title, artist });
+      out.push({ title, artist, rank: out.length });
       if (out.length >= 8) break;
     }
     return out;
@@ -220,6 +226,13 @@ async function trackPopularity(track: string, artist: string): Promise<number> {
  *          dominant.
  * Rule 4 — Flat popularity (spread < 0.2, all obscure): drop pop entirely,
  *          renormalize the remaining two.
+ * Rule 5 — Lyric tie (top two lyric scores within 0.05, e.g. the same
+ *          lyric attached to several entries): lyric evidence can't
+ *          separate them, so the more popular original must win. Raise the
+ *          popularity weight (taken from lyric weight). A small
+ *          retrieval-order prior (≤2 pts, provider's own relevance rank)
+ *          breaks whatever ties remain; it can never outweigh a real
+ *          lyric gap outside a tie.
  */
 interface RankedCandidate {
   item: any;
@@ -265,11 +278,20 @@ async function rerankByPopularity(
     const sum = wLyric + wTitle;
     wLyric /= sum; wTitle /= sum; wPop = 0;
   }
+  // Rule 5 — lyric tie: shift weight from lyric (indecisive) to popularity
+  // so the more popular original wins; keep weights summing to 1.
+  const topScores = withPop.map(c => c.score).sort((a, b) => b - a);
+  if (usePop && topScores.length > 1 && topScores[0] - topScores[1] <= 0.05 && wPop < 0.30) {
+    wLyric -= (0.30 - wPop);
+    wPop = 0.30;
+  }
 
   for (const c of withPop) {
-    c.final = wLyric * c.score + wPop * c.pop + wTitle * c.titleBonus;
+    const rank = typeof c.item._retrievalRank === "number" ? c.item._retrievalRank : 8;
+    c.final = wLyric * c.score + wPop * c.pop + wTitle * c.titleBonus
+      + 0.02 * (1 - Math.min(rank, 8) / 8);
   }
-  withPop.sort((a, b) => b.final - a.final || b.score - a.score);
+  withPop.sort((a, b) => b.final - a.final || b.score - a.score || b.pop - a.pop);
   return withPop;
 }
 
@@ -449,14 +471,14 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const geniusEntries = await Promise.all(
     geniusPairs.slice(0, 8).map(async (p) => {
       const entries = await lrclibLyricsFor(p.title, p.artist);
-      for (const e of entries) e._genius = true;
+      for (const e of entries) { e._genius = true; e._retrievalRank = p.rank; }
       return entries;
     })
   );
   const musixEntries = await Promise.all(
     musixPairs.slice(0, 8).map(async (p) => {
       const entries = await lrclibLyricsFor(p.title, p.artist);
-      for (const e of entries) e._musix = true;
+      for (const e of entries) { e._musix = true; e._retrievalRank = p.rank; }
       return entries;
     })
   );

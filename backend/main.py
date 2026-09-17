@@ -271,7 +271,7 @@ def _process_candidate(
             caller after grouping). Falls back to len(sources) or 1.
         transcript: Sanitized transcript text.
         language: Whisper-detected language tag (gates phonetic rules).
-    
+
     Returns:
         Enriched candidate with lyric evidence, timestamp, Spotify metadata.
         Ranking happens later in the pipeline via candidate_ranker.
@@ -580,7 +580,7 @@ async def _build_results(
     # Use ranking_score (from candidate_ranker) as the display confidence
     top_conf = int(results[0].get("ranking_score", results[0].get("confidence", 0)))
     second_conf = int(results[1].get("ranking_score", results[1].get("confidence", 0))) if len(results) > 1 else 0
-    
+
     # Compute confidence label using the new system
     label, margin = compute_confidence_label(
         top_conf, second_conf, transcript,

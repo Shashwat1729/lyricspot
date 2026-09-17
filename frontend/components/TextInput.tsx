@@ -125,9 +125,15 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
         )}
 
         {!loading && !lyrics && (
-          <div className="flex items-center justify-center gap-1.5 text-[11px] text-gray-600">
-            <Wand2 className="w-3 h-3" />
-            <span>Live in-browser search — no backend needed</span>
+          <div className="flex flex-col items-center justify-center gap-1 text-[11px] text-gray-600">
+            <span className="flex items-center gap-1.5">
+              <Wand2 className="w-3 h-3" />
+              <span>Demo search in your browser — no backend needed</span>
+            </span>
+            <span className="text-gray-700">
+              Best-effort only: results can be wrong. For full accuracy, clone
+              the repo and run the backend (README).
+            </span>
           </div>
         )}
 

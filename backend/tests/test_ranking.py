@@ -600,7 +600,7 @@ class TestRealWorldScenarios:
         """
         Critical regression test: "take a sad song" is an exact lyric from Hey Jude
         but should NOT be beaten by coincidental title matches like "Sad Song".
-        
+
         This is the canonical test case for lyric-content-first ranking.
         The query appears in Hey Jude's lyrics: "take a sad song and make it better"
         """
@@ -653,12 +653,12 @@ class TestRealWorldScenarios:
         # Hey Jude MUST rank first despite lower search_confidence
         assert ranked[0]["song"] == "Hey Jude", \
             f"'take a sad song' is exact Hey Jude lyric, must rank #1. Got: {[(c['song'], c['ranking_score']) for c in ranked[:3]]}"
-        
+
         # Margin should be decisive when lyric evidence is this strong
         margin = ranked[0]["ranking_score"] - ranked[1]["ranking_score"]
         assert margin >= 25, \
             f"Exact lyric match should dominate title matches by wide margin. Got margin={margin}"
-        
+
         # Hey Jude should score high (exact match floor is 88)
         assert ranked[0]["ranking_score"] >= 85, \
             f"Exact lyric match should score >=85, got {ranked[0]['ranking_score']}"
