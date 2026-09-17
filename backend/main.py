@@ -29,7 +29,6 @@ from services.song_identifier import SongIdentifier
 from services.lyrics_fetcher import LyricsFetcher
 from services.timestamp_matcher import TimestampMatcher
 from services.spotify_linker import SpotifyLinker
-from services.confidence_calculator import confidence_calculator
 from services.feedback_store import FeedbackStore
 from services.candidate_ranker import candidate_ranker, compute_confidence_label
 
