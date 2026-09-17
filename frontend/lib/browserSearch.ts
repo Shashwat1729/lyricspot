@@ -25,7 +25,7 @@ export interface BrowserCandidate {
   spotify_url: string;
   album_art: string;
   strategy: string;
-  covers?: string[];
+  covers?: CoverInfo[];
   isBrowser: true;
 }
 
@@ -36,6 +36,14 @@ function timeoutSignal(ms: number): AbortSignal {
   setTimeout(() => c.abort(), ms);
   return c.signal;
 }
+
+/**
+ * Stop/function words for query focus and title-overlap (English + Hindi
+ * particles — pure function words, never song-specific content).
+ */
+const STOP = new Set(["a","an","the","is","are","was","were","be","been","being","have","has","had","do","does","did","will","would","could","should","may","might","must","can","this","that","these","those","i","you","he","she","it","we","they","me","him","her","us","them","my","your","his","its","our","their","all","any","both","each","few","more","most","other","some","such","no","nor","not","only","own","same","so","than","too","very","just","because","but","and","or","if","then","else","when","up","down","in","out","on","off","over","under","again","further","once","here","there","where","why","how","what","which","who","whom","there","is","no","it","its",
+  // Hindi/Urdu particles (se = by/from, ne = ergative, ka/ki/ke = of, ko = to, ...).
+  "se","ne","ka","ki","ke","ko","mein","me","aur","hai","hain","na","jo","bhi","par","ye","yeh","woh","vo","toh","kya","kaise","nahi","nahin"]);
 
 /** Canonical artist key: dedupes "The Beatles" / "Beatles, The" / comma/ampersand variants. */
 function canonicalArtist(name: string): string {
@@ -159,6 +167,61 @@ async function musixmatchLyricCandidates(transcript: string): Promise<{ title: s
   } catch {
     return [];
   }
+}
+
+/**
+ * Strip version/credit suffixes so alternate releases group as one song:
+ * "Hey Jude (Remastered 2015)", "Hey Jude - Live", "Song (feat. A)".
+ * Only structural music-industry terms are stripped — never song words.
+ */
+function stripVersion(t: string): string {
+  let s = " " + (t || "").toLowerCase() + " ";
+  const WORD = "(remaster\\w*|remix|live|acoustic|unplugged|demo|take\\s*\\d+|version|cover|karaoke|tribute|instrumental|anniversary|deluxe|expanded|reprise|slowed|reverb|sped\\s*up|nightcore|official(\\s+music)?(\\s+video)?|lyric(s)?(\\s+video)?|audio|bonus(\\s+track)?|single|session|rehearsal|outtake|alternate|alternative|mono|stereo|feat\\.?|ft\\.?|featuring)";
+  // Parenthetical/bracket credits containing a version keyword.
+  s = s.replace(new RegExp("[\\(\\[][^\\)\\]]*" + WORD + "\\b[^\\)\\]]*[\\)\\]]", "gi"), " ");
+  // Trailing version suffixes, repeatedly (handles combos like "- Live (Remastered)").
+  for (let i = 0; i < 3; i++) {
+    const next = s.replace(new RegExp("[\\s\\-\u2013\u2014:;/|,\\(]+?" + WORD + "\\b[\\s\\-\u2013\u2014:;/|,\\)\\]\\d]*$", "i"), " ");
+    if (next === s) break;
+    s = next;
+  }
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function normalizeTitle(t: string): string {
+  return stripVersion(t);
+}
+
+function titleContentWords(t: string): Set<string> {
+  return new Set(
+    normalizeTitle(t).split(/\s+/).filter(w => w && !STOP.has(w) && (w.length >= 2 || /\d/.test(w)))
+  );
+}
+
+function sharesContentWord(a: Set<string>, b: Set<string>): boolean {
+  let shared = false;
+  a.forEach(w => { if (b.has(w)) shared = true; });
+  return shared;
+}
+
+/**
+ * Same-recording family: near-identical best lyric lines AND a shared
+ * title content word. Groups covers/remixes/live takes whose titles differ
+ * ("Hey Jude - Live at ...") while keeping apart different songs that
+ * merely quote one line (medleys) or share a common phrase.
+ */
+function sameLyricFamily(lineA: string, lineB: string, wordsA: Set<string>, wordsB: Set<string>): boolean {
+  if (!lineA || !lineB || !wordsA.size || !wordsB.size) return false;
+  if (!sharesContentWord(wordsA, wordsB)) return false;
+  return tokenScore(lineA, lineB) >= 0.88;
+}
+
+/** A same-song alternate version attached to a result. */
+export interface CoverInfo {
+  artist: string;
+  confidence: number;
+  timestamp_display: string | null;
+  matched: string;
 }
 
 /** Strip auto-generated channel suffixes ("Nirvana - Topic") from artist names. */
@@ -336,35 +399,119 @@ function isDevanagari(s: string): boolean {
   return false;
 }
 
-// Minimal Devanagari -> Latin for cross-script lyric matching (Hindi romanized
-// queries vs Devanagari synced lyrics). Covers the common characters in film
-// lyrics; not a full transliterator, just enough for token overlap.
+// Devanagari -> Latin for cross-script lyric matching (romanized Hindi
+// queries vs Devanagari synced lyrics). Syllable-based with standard Hindi
+// schwa deletion (final + medial CaCV́→CCV́: सपने→sapne, not sapane) and
+// anusvara→n (में→man), so machine output lands near how humans romanize.
+// Not a full transliterator — residual gaps (u/a variation, aspirates) are
+// covered by relaxed-vowel + fuzzy token credit in tokenScore.
 function romanizeDevanagari(s: string): string {
-  const map: Record<string, string> = {
+  const CONS: Record<string, string> = {
+    "\u0915": "k", "\u0916": "kh", "\u0917": "g", "\u0918": "gh", "\u0919": "ng",
+    "\u091A": "ch", "\u091B": "chh", "\u091C": "j", "\u091D": "jh", "\u091E": "ny",
+    "\u091F": "t", "\u0920": "th", "\u0921": "d", "\u0922": "dh", "\u0923": "n",
+    "\u0924": "t", "\u0925": "th", "\u0926": "d", "\u0927": "dh", "\u0928": "n",
+    "\u092A": "p", "\u092B": "ph", "\u092C": "b", "\u092D": "bh", "\u092E": "m",
+    "\u092F": "y", "\u0930": "r", "\u0932": "l", "\u0935": "v",
+    "\u0936": "sh", "\u0937": "sh", "\u0938": "s", "\u0939": "h",
+  };
+  const SIGN: Record<string, string> = {
+    "\u093E": "aa", "\u093F": "i", "\u0940": "ii", "\u0941": "u", "\u0942": "uu",
+    "\u0947": "e", "\u0948": "ai", "\u094B": "o", "\u094C": "au",
+  };
+  const IND: Record<string, string> = {
     "\u0905": "a", "\u0906": "aa", "\u0907": "i", "\u0908": "ii", "\u0909": "u", "\u090A": "uu",
     "\u090F": "e", "\u0910": "ai", "\u0913": "o", "\u0914": "au",
-    "\u0915": "ka", "\u0916": "kha", "\u0917": "ga", "\u0918": "gha", "\u0919": "nga",
-    "\u091A": "cha", "\u091B": "chha", "\u091C": "ja", "\u091D": "jha", "\u091E": "nya",
-    "\u091F": "ta", "\u0920": "tha", "\u0921": "da", "\u0922": "dha", "\u0923": "na",
-    "\u0924": "ta", "\u0925": "tha", "\u0926": "da", "\u0927": "dha", "\u0928": "na",
-    "\u092A": "pa", "\u092B": "pha", "\u092C": "ba", "\u092D": "bha", "\u092E": "ma",
-    "\u092F": "ya", "\u0930": "ra", "\u0932": "la", "\u0935": "va", "\u0936": "sha", "\u0937": "sha", "\u0938": "sa", "\u0939": "ha",
-    "\u093E": "aa", "\u093F": "i", "\u0940": "ii", "\u0941": "u", "\u0942": "uu", "\u0947": "e", "\u0948": "ai", "\u094B": "o", "\u094C": "au",
-    "\u094D": "", "\u0902": "n", "\u0901": "n", "\u093C": "",
   };
-  let out = "";
-  for (const ch of s) out += map[ch] ?? (/[\u0900-\u097F]/.test(ch) ? " " : ch);
-  return out.replace(/\s+/g, " ").trim();
+  const HALANT = "\u094D", ANUSVARA = "\u0902", CHANDRA = "\u0901", NUKTA = "\u093C", VISARGA = "\u0903";
+  const isConsBase = (base: string) => /^[bcdfghjklmnpqrstvwxyz]/.test(base);
+  const words: string[] = [];
+  for (const word of s.split(/\s+/)) {
+    if (!word) continue;
+    const syls: { base: string; vowel: string | null }[] = [];
+    const chars = Array.from(word);
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      const nxt = chars[i + 1];
+      if (CONS[ch] !== undefined) {
+        if (nxt !== undefined && SIGN[nxt] !== undefined) {
+          syls.push({ base: CONS[ch], vowel: SIGN[nxt] }); i++;
+        } else if (nxt === HALANT) {
+          syls.push({ base: CONS[ch], vowel: "" }); i++; // conjunct joins next
+        } else if (nxt === ANUSVARA || nxt === CHANDRA) {
+          syls.push({ base: CONS[ch], vowel: "a" }); syls.push({ base: "n", vowel: null }); i++;
+        } else if (nxt === VISARGA) {
+          syls.push({ base: CONS[ch], vowel: "a" }); i++;
+        } else {
+          syls.push({ base: CONS[ch], vowel: "a" }); // inherent, may delete
+        }
+      } else if (IND[ch] !== undefined) {
+        syls.push({ base: "", vowel: IND[ch] });
+      } else if (ch === HALANT || ch === NUKTA || ch === VISARGA) {
+        continue;
+      } else if (/[\u0900-\u097F]/.test(ch)) {
+        // Leftover vowel sign without base (shouldn't happen) — separator.
+        syls.push({ base: " ", vowel: null });
+      } else {
+        syls.push({ base: ch, vowel: null });
+      }
+    }
+    const out: string[] = [];
+    for (let k = 0; k < syls.length; k++) {
+      const syl = syls[k];
+      if (syl.vowel === "a") {
+        // Standard Hindi schwa deletion: drop inherent 'a' word-finally,
+        // or medially in a VC_CV window (left syllable has a vowel, right
+        // is consonant + explicit vowel): सपने→sapne, रामपुर→rampur.
+        // Word-initial and pre-inherent positions keep it: गली→gali.
+        const isFinal = k === syls.length - 1;
+        const prev = k > 0 ? syls[k - 1] : null;
+        const prevHasVowel = prev !== null && prev.vowel !== null && prev.vowel !== "";
+        const next = syls[k + 1];
+        const beforeExplicit = next !== undefined && isConsBase(next.base)
+          && next.vowel !== null && next.vowel !== "" && next.vowel !== "a";
+        if (isFinal || (prevHasVowel && beforeExplicit)) {
+          out.push(syl.base); // drop the vowel, keep the consonant
+          continue;
+        }
+      }
+      out.push(syl.base + (syl.vowel || ""));
+    }
+    words.push(out.join(""));
+  }
+  return words.join(" ").replace(/\s+/g, " ").trim();
 }
 
-function tokenScore(a: string, b: string): number {
+/** Vowel-collapsed equality for cross-script pairs (hum/ham, tum/tam). */
+function relaxedVowelEq(a: string, b: string): boolean {
+  const collapse = (s: string) => s.toLowerCase().replace(/[uo]/g, "a");
+  return collapse(a) === collapse(b);
+}
+
+/** Normalized edit similarity 0..1 (Levenshtein over short tokens). */
+function editSimilarity(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (!m || !n) return 0;
+  let prev: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur: number[] = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return 1 - prev[n] / Math.max(m, n);
+}
+
+function tokenScore(a: string, b: string, soft = false): number {
   const aIsDeva = isDevanagari(a);
   const bIsDeva = isDevanagari(b);
   if (aIsDeva !== bIsDeva) {
-    // Cross-script: romanize the Devanagari side and retry
+    // Cross-script: romanize the Devanagari side and retry with soft
+    // token credit (transliteration + human-spelling variation).
     const ar = aIsDeva ? romanizeDevanagari(a) : a;
     const br = bIsDeva ? romanizeDevanagari(b) : b;
-    return tokenScore(ar, br);
+    return tokenScore(ar, br, true);
   }
   const cleanA = a.toLowerCase().split(/\s+/).filter(Boolean);
   const cleanB = b.toLowerCase().split(/\s+/).filter(Boolean);
@@ -372,8 +519,30 @@ function tokenScore(a: string, b: string): number {
   const tb = new Set(cleanB);
   if (ta.size === 0 || tb.size === 0) return 0;
   let inter = 0;
-  ta.forEach(w => { if (tb.has(w)) inter++; });
-  if (inter === ta.size) return 0.92;
+  if (soft) {
+    // Cross-script credit: human romanization varies (hum/ham, baithe/
+    // baitthae), so near-matches earn partial credit. Each line token is
+    // spent at most once; greedy best-match order is deterministic.
+    const used = new Set<number>();
+    ta.forEach(w => {
+      let best = 0, bestJ = -1;
+      cleanB.forEach((v, j) => {
+        if (used.has(j)) return;
+        let c = 0;
+        if (v === w) c = 1;
+        else if (relaxedVowelEq(v, w)) c = 0.9;
+        else {
+          const sim = editSimilarity(v, w);
+          if (Math.min(v.length, w.length) >= 4 && sim >= 0.72) c = sim;
+        }
+        if (c > best) { best = c; bestJ = j; }
+      });
+      if (bestJ >= 0 && best > 0) { used.add(bestJ); inter += best; }
+    });
+  } else {
+    ta.forEach(w => { if (tb.has(w)) inter++; });
+  }
+  if (inter >= ta.size - 1e-9) return 0.92;
   // BM25-inspired: term saturation + length normalization.
   // Short exact lines like "hello" (1 word) should not outrank a focused
   // 6-word verse that contains the same rare word.
@@ -414,9 +583,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   onProgress?.("searching", "Searching lyrics...");
   // LRCLIB search is phrase-based — stop-word-heavy prefixes like
   // "yesterday all my" often return 0 or irrelevant hits. Build queries
-  // from content words (no stop words) so "yesterday troubles seemed"
-  // finds Yesterday, etc. Scoring still uses the full transcript.
-  const STOP = new Set(["a","an","the","is","are","was","were","be","been","being","have","has","had","do","does","did","will","would","could","should","may","might","must","can","this","that","these","those","i","you","he","she","it","we","they","me","him","her","us","them","my","your","his","its","our","their","all","any","both","each","few","more","most","other","some","such","no","nor","not","only","own","same","so","than","too","very","just","because","but","and","or","if","then","else","when","up","down","in","out","on","off","over","under","again","further","once","here","there","where","why","how","what","which","who","whom","there","is","no","it","its"]);
+  // from content words (no stop words, English + Hindi particles) so
+  // "yesterday troubles seemed" finds Yesterday, etc. Scoring still uses
+  // the full transcript.
   const allWords = clean.split(/\s+/);
   const contentWords = allWords.filter(w => !STOP.has(w));
   const queries: string[] = [];
@@ -528,7 +697,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       const seen = new Set<string>();
       const top: typeof titleScored = [];
       for (const c of titleScored) {
-        const key = (c.item.trackName || "").toLowerCase().replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
+        const key = normalizeTitle(c.item.trackName || "");
         if (!seen.has(key)) { seen.add(key); top.push(c); }
         if (top.length >= 5) break;
       }
@@ -554,7 +723,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
           spotify_url: spotifyUrl,
           album_art: albumArt,
           strategy: "lrclib-title",
-          covers: [] as string[],
+          covers: [] as CoverInfo[],
           isBrowser: true as const,
         };
       }));
@@ -570,31 +739,53 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // Slice by LYRIC score, not raw search order — the true match often sits
   // below title-coincidences in provider order.
   const ranked = await rerankByPopularity(clean, scored.sort((a, b) => b.score - a.score).slice(0, 10));
-  // Cover grouping: same title (normalized) by different artists counts as
-  // one song. Keep the most popular/high-scoring version on top, stash
-  // other artists as covers for the details view.
-  function normalizeTitle(t: string): string {
-    return (t || "").toLowerCase().replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  // Cover grouping: same song (version-stripped title OR near-identical
+  // best lyric + shared title word) counts as one song. Ranked order puts
+  // the strongest version first, so it becomes the group head; the rest
+  // are stashed with details (artist, confidence, timestamp, matched
+  // lyric) for the expandable covers view.
+  interface CoverGroup {
+    key: string;
+    head: (typeof ranked)[number];
+    headLine: string;
+    headWords: Set<string>;
+    covers: CoverInfo[];
   }
-  const grouped: typeof ranked = [];
-  const seenTitles = new Set<string>();
+  const groups: CoverGroup[] = [];
   for (const c of ranked) {
-    const key = normalizeTitle(c.item.trackName || "");
-    if (!seenTitles.has(key)) {
-      seenTitles.add(key);
-      // Attach covers found under the same title
-      const covers = ranked
-        .filter(o => normalizeTitle(o.item.trackName || "") === key && o !== c)
-        .slice(0, 4)
-        .map(o => cleanArtist(o.item.artistName || ""));
-      (c as any).covers = covers.filter(Boolean);
-      grouped.push(c);
+    const track: string = c.item.trackName || "";
+    const key = normalizeTitle(track);
+    const line = (c.lines[c.bestIdx] && c.lines[c.bestIdx].text) || "";
+    const words = titleContentWords(track);
+    let placed: CoverGroup | null = null;
+    for (const g of groups) {
+      if (g.key === key || sameLyricFamily(line, g.headLine, words, g.headWords)) {
+        placed = g;
+        break;
+      }
+    }
+    if (!placed) {
+      if (groups.length >= 10) break;
+      placed = { key, head: c, headLine: line, headWords: words, covers: [] };
+      groups.push(placed);
+    } else if (placed.head !== c && placed.covers.length < 6) {
+      const cLine = (c.lines[c.bestIdx] && c.lines[c.bestIdx].text) || "";
+      const cTs = (c.lines[c.bestIdx] && c.lines[c.bestIdx].t) ?? null;
+      const cArtist = cleanArtist(c.item.artistName || "");
+      if (cArtist && !placed.covers.some(o => o.artist === cArtist)) {
+        placed.covers.push({
+          artist: cArtist,
+          confidence: Math.round(c.final * 100),
+          timestamp_display: fmt(cTs),
+          matched: cLine,
+        });
+      }
     }
     // Up to 10 distinct songs: Top 5 initially, Load More pages the rest
     // (5 → 8 → 10). Never fabricate — stop when the pool is exhausted.
-    if (grouped.length >= 10) break;
+    if (groups.length >= 10) break;
   }
-  const top = grouped;
+  const top = groups.map(g => g.head);
 
   onProgress?.("candidate_ready", "Fetching artwork...");
   // Artwork for all top candidates in parallel (was sequential: 3 x 4s worst case).
@@ -631,10 +822,44 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       spotify_url: "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName),
       album_art: arts[i] || "",
       strategy: c.item._musix ? "musixmatch" : c.item._genius ? "genius" : "lrclib",
-      covers: (c as any).covers || [],
+      covers: (groups[i] && groups[i].covers) || [],
       isBrowser: true,
     };
   });
+
+  // Lyric-index hits with no LRCLIB lines: Genius matched the lyric text
+  // itself, so the song must not vanish silently. Shown honestly at low
+  // confidence with no context/timestamp (max 3, never duplicating scored
+  // results, never ahead of line-verified evidence).
+  const pooledKeys = new Set(seenTracks);
+  const geniusBare = geniusPairs
+    .filter(p => !pooledKeys.has(p.title.toLowerCase() + "|" + canonicalArtist(p.artist)))
+    .slice(0, 3);
+  if (geniusBare.length) {
+    onProgress?.("candidate_ready", "Fetching artwork...");
+    const bareArts = await Promise.all(
+      geniusBare.map(p => fetchArtwork(p.title, cleanArtist(p.artist)))
+    );
+    const bareCards: BrowserCandidate[] = geniusBare.map((p, k) => ({
+      song: p.title || "Unknown",
+      artist: cleanArtist(p.artist || ""),
+      confidence: 55,
+      timestamp: null,
+      timestamp_display: null,
+      timestamp_estimated: false,
+      lyrics_context: null,
+      occurrences: [],
+      ambiguous: false,
+      spotify_url: "https://open.spotify.com/search/" + encodeURIComponent((p.title || "") + " " + cleanArtist(p.artist || "")),
+      album_art: bareArts[k] || "",
+      strategy: "genius",
+      covers: [],
+      isBrowser: true,
+    }));
+    if (!results.length) return { transcript: clean, results: bareCards.slice(0, 5) };
+    const room = Math.max(0, 10 - results.length);
+    results.push(...bareCards.slice(0, room));
+  }
 
   return { transcript: clean, results };
 }

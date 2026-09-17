@@ -193,6 +193,12 @@ class CandidateRanker:
             candidate["ranking_score"] = int(min(99, max(10, final_score)))
             candidate["score_breakdown"] = {k: int(v) if isinstance(v, (int, float)) and k != "feedback_adj" else v for k, v in score_breakdown.items()}
 
+        # Lyric-tie rule (mirrors the browser engine's Rule 5): when several
+        # candidates carry equally strong lyric evidence (same lyric attached
+        # to multiple entries), the more popular original must win over
+        # same-lyric covers/mislabels. Bounded adjustment, ties only.
+        self._apply_lyric_tiebreak(candidates)
+
         # Sort deterministically: ranking_score desc, then song/artist alphabetically
         candidates.sort(
             key=lambda c: (
@@ -462,6 +468,36 @@ class CandidateRanker:
             return (magnitude / max_log) * self.FEEDBACK_MAX_BONUS
         else:
             return -(magnitude / max_log) * self.FEEDBACK_MAX_PENALTY
+
+    def _apply_lyric_tiebreak(self, candidates: list[dict]) -> None:
+        """
+        Bounded popularity adjustment inside a lyric-evidence tie.
+
+        When several candidates carry equally strong lyric evidence (top
+        lyric_content scores within 5, all >= 60 — e.g. the same lyric
+        attached to multiple entries), the more popular original must win
+        over same-lyric covers/mislabels. Adjustment is at most +8 and only
+        applies inside the tied band, so it can flip noise gaps but never
+        jump evidence bands. Deterministic; recorded in the breakdown.
+        """
+        if len(candidates) < 2:
+            return
+        lyric_scores = [
+            c.get("score_breakdown", {}).get("lyric_content", 0)
+            for c in candidates
+        ]
+        top = max(lyric_scores)
+        if top < 60:
+            return  # weak-evidence zone: popularity must not invent winners
+        for candidate, lyric in zip(candidates, lyric_scores):
+            if top - lyric > 5:
+                candidate["score_breakdown"]["tiebreak_popularity"] = 0
+                continue
+            pop = candidate.get("spotify_popularity")
+            pop01 = (pop / 100.0) if isinstance(pop, (int, float)) else 0.5
+            adj = round(8 * max(0.0, min(1.0, pop01)), 1)
+            candidate["ranking_score"] = int(min(99, candidate["ranking_score"] + adj))
+            candidate["score_breakdown"]["tiebreak_popularity"] = adj
 
     def _apply_constraints(
         self, score: float, candidate: dict, query: str

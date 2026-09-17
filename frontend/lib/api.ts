@@ -99,6 +99,15 @@ export interface LyricOccurrence {
   matched_line: string;
 }
 
+/** A same-song alternate version attached to a result (cover/live/remix). */
+export interface CoverInfo {
+  artist: string;
+  confidence?: number;
+  timestamp_display?: string | null;
+  /** The lyric line this version matched (evidence it is the same song). */
+  matched?: string;
+}
+
 /** Single song result from the backend */
 export interface SongResult {
   song: string;
@@ -118,7 +127,8 @@ export interface SongResult {
   album_art?: string;
   strategy: string;
   sources?: string[];
-  covers?: string[];
+  /** Backend sends plain artist names; the browser engine sends rich details. */
+  covers?: (string | CoverInfo)[];
 }
 
 /** API response from /upload or /identify */

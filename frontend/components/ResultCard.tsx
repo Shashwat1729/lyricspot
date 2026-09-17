@@ -335,12 +335,27 @@ export default function ResultCard({ results, transcript, onTryAgain, confidence
                         <span className="group-open/covers:rotate-90 transition-transform inline-block">▸</span>
                         {result.covers.length} cover{result.covers.length === 1 ? "" : "s"} — view
                       </summary>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {result.covers.map((name) => (
-                          <span key={name} className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-gray-300 px-2 py-0.5 rounded-full">
-                            {name}
-                          </span>
-                        ))}
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {result.covers.map((cv, ci) => {
+                          const info = typeof cv === "string"
+                            ? { artist: cv }
+                            : cv;
+                          const meta = [
+                            info.confidence != null ? info.confidence + "%" : "",
+                            info.timestamp_display || "",
+                          ].filter(Boolean).join(" • ");
+                          return (
+                            <span key={info.artist + "-" + ci}
+                              title={info.matched || info.artist}
+                              className="text-[11px] bg-white/[0.06] border border-white/[0.08] text-gray-300 px-2.5 py-1 rounded-lg">
+                              <span className="font-medium text-gray-200">{info.artist}</span>
+                              {meta ? <span className="text-gray-500"> • {meta}</span> : null}
+                              {info.matched ? (
+                                <span className="block text-gray-500 truncate">“{info.matched}”</span>
+                              ) : null}
+                            </span>
+                          );
+                        })}
                       </div>
                     </details>
                   )}

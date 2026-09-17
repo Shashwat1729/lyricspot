@@ -663,6 +663,44 @@ class TestRealWorldScenarios:
         assert ranked[0]["ranking_score"] >= 85, \
             f"Exact lyric match should score >=85, got {ranked[0]['ranking_score']}"
 
+    def test_shared_lyric_tie_goes_to_popular_original(self):
+        """
+        Same lyric attached to two entries (cover/mislabel carries the
+        original's words): lyric evidence ties, so the more popular
+        original must win — even when the cover's title matches the query.
+        General rule, no song-specific logic.
+        """
+        candidates = [
+            {
+                "song": "Hey Jude",
+                "artist": "The Beatles",
+                "lyrics_match_score": 95,
+                "exact_lyrics_match": True,
+                "lyrics_available": True,
+                "search_confidence": 60,
+                "source_count": 2,
+                "spotify_popularity": 95,
+            },
+            {
+                "song": "Sad Song",  # same lyric lines, misleading title
+                "artist": "Cover Band",
+                "lyrics_match_score": 95,
+                "exact_lyrics_match": True,
+                "lyrics_available": True,
+                "search_confidence": 90,  # title matches the query words
+                "source_count": 1,
+                "spotify_popularity": 25,
+            },
+        ]
+
+        query = "take a sad song"
+        ranked = candidate_ranker.rank_candidates(candidates, query)
+
+        assert ranked[0]["song"] == "Hey Jude", \
+            f"Lyric tie must break toward the popular original. Got: {[(c['song'], c['ranking_score']) for c in ranked]}"
+        assert "tiebreak_popularity" in ranked[0].get("score_breakdown", {}), \
+            "Tie adjustment must be recorded in the breakdown"
+
 
 class TestScoreBreakdown:
     """Test that score breakdown is transparent and debuggable."""

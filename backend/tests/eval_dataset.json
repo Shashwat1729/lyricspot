@@ -269,6 +269,31 @@
       ]
     },
     {
+      "id": "en_17_shared_lyric_tie",
+      "language": "en",
+      "query": "take a sad song",
+      "expected_song": "Hey Jude",
+      "expected_artist": "The Beatles",
+      "note": "Shared-lyric collision: the same lyric lines attached to a different-titled entry must not outrank the popular original. Lyric tie goes to popularity.",
+      "lyrics_snippet": "take a sad song and make it better",
+      "hard_negatives": [
+        {"song": "Sad Song", "artist": "Cover Band", "why": "same lyric evidence, misleading title, obscure artist must lose the tie"}
+      ]
+    },
+    {
+      "id": "en_18_hindi_romanized_exact",
+      "language": "hi",
+      "query": "kal ho naa ho",
+      "expected_song": "Kal Ho Naa Ho",
+      "expected_artist": "Sonu Nigam",
+      "note": "Romanized Hindi query against Devanagari-stored lyrics — cross-script matching (schwa deletion etc.) must bridge the gap without song-specific rules.",
+      "lyrics_snippet": "kal ho naa ho",
+      "hard_negatives": [
+        {"song": "Kal Ho Na Ho", "artist": "Karaoke Hits", "why": "same words, karaoke artist must lose to original on tie"},
+        {"song": "Ho Na Ho", "artist": "Unknown Artist", "why": "partial title words with lyric-poor match"}
+      ]
+    },
+    {
       "id": "en_16_fuzzy_transcription",
       "language": "en",
       "query": "take a sad song and make it batter",
