@@ -868,6 +868,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     if (!results.length) return { transcript: clean, results: bareCards.slice(0, 5) };
     const room = Math.max(0, 10 - results.length);
     results.push(...bareCards.slice(0, room));
+    // Merge by confidence (stable): index evidence at 55 outranks weak
+    // partial-line matches in the low 50s, but never line-verified highs.
+    results.sort((a, b) => b.confidence - a.confidence);
   }
 
   return { transcript: clean, results };
