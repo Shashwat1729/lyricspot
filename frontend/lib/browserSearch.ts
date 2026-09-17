@@ -79,7 +79,7 @@ function isBoilerplate(text: string): boolean {
  * still makes the final call. Fully fail-soft: any failure returns [] and
  * the pipeline behaves exactly as before.
  */
-async function geniusLyricCandidates(transcript: string): Promise<{ title: string; artist: string; rank: number }[]> {
+async function geniusLyricCandidates(transcript: string): Promise<{ title: string; artist: string; rank: number; matched: number }[]> {
   try {
     // Official API with the visitor's token when saved, else the keyless
     // webpage endpoint (same lyric-matching index, may be CORS-blocked).
@@ -96,7 +96,7 @@ async function geniusLyricCandidates(transcript: string): Promise<{ title: strin
     if (!r.ok) return [];
     const j: any = await r.json();
     const hits: any[] = j?.response?.hits || [];
-    const out: { title: string; artist: string; rank: number }[] = [];
+    const out: { title: string; artist: string; rank: number; matched: number }[] = [];
     const seen = new Set<string>();
     for (const h of hits) {
       if (h?.type && h.type !== "song") continue;
@@ -111,7 +111,10 @@ async function geniusLyricCandidates(transcript: string): Promise<{ title: strin
       seen.add(key);
       // Rank = position in the provider's own relevance order. Recorded so
       // ranking can use it as a weak near-tie prior (never dominant).
-      out.push({ title, artist, rank: out.length });
+      // matched = query words Genius found in the lyrics; gates fallback
+      // evidence cards so thin matches don't surface as results.
+      const matched = typeof h.matched_words === "number" ? h.matched_words : 0;
+      out.push({ title, artist, rank: out.length, matched });
       if (out.length >= 8) break;
     }
     return out;
@@ -827,13 +830,19 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     };
   });
 
-  // Lyric-index hits with no LRCLIB lines: Genius matched the lyric text
-  // itself, so the song must not vanish silently. Shown honestly at low
-  // confidence with no context/timestamp (max 3, never duplicating scored
-  // results, never ahead of line-verified evidence).
-  const pooledKeys = new Set(seenTracks);
-  const geniusBare = geniusPairs
-    .filter(p => !pooledKeys.has(p.title.toLowerCase() + "|" + canonicalArtist(p.artist)))
+  // Lyric-index hits with no verifiable lines: Genius matched the lyric
+  // text itself (lyrics may be missing, partial, or a different section in
+  // LRCLIB), so the song must not vanish silently. Shown honestly at low
+  // confidence with no context/timestamp: at most the top 3 unmatched
+  // hits with substantial word matches, never duplicating scored results,
+  // never ahead of line-verified evidence.
+  const scoredKeys = new Set(
+    scored.map(s => ((s.item.trackName || "").toLowerCase()) + "|" + canonicalArtist(s.item.artistName || ""))
+  );
+  const musixBare = musixPairs.map(p => ({ ...p, matched: 99 }));
+  const geniusBare = [...geniusPairs, ...musixBare]
+    .filter(p => p.matched >= 3
+      && !scoredKeys.has(p.title.toLowerCase() + "|" + canonicalArtist(p.artist)))
     .slice(0, 3);
   if (geniusBare.length) {
     onProgress?.("candidate_ready", "Fetching artwork...");
