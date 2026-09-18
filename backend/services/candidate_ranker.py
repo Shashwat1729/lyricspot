@@ -70,6 +70,70 @@ def _strip_accents(text: str) -> str:
     )
 
 
+def _is_devanagari(text: str) -> bool:
+    return any(0x0900 <= ord(ch) <= 0x097F for ch in text)
+
+
+def _romanize_devanagari(text: str) -> str:
+    """Syllable romanization with Hindi schwa deletion (sapne→sapne, not sapane)."""
+    CONS = {
+        "\u0915": "k", "\u0916": "kh", "\u0917": "g", "\u0918": "gh", "\u0919": "ng",
+        "\u091A": "ch", "\u091B": "chh", "\u091C": "j", "\u091D": "jh", "\u091E": "ny",
+        "\u091F": "t", "\u0920": "th", "\u0921": "d", "\u0922": "dh", "\u0923": "n",
+        "\u0924": "t", "\u0925": "th", "\u0926": "d", "\u0927": "dh", "\u0928": "n",
+        "\u092A": "p", "\u092B": "ph", "\u092C": "b", "\u092D": "bh", "\u092E": "m",
+        "\u092F": "y", "\u0930": "r", "\u0932": "l", "\u0935": "v",
+        "\u0936": "sh", "\u0937": "sh", "\u0938": "s", "\u0939": "h",
+    }
+    SIGN = {
+        "\u093E": "aa", "\u093F": "i", "\u0940": "ii", "\u0941": "u", "\u0942": "uu",
+        "\u0947": "e", "\u0948": "ai", "\u094B": "o", "\u094C": "au",
+    }
+    IND = {
+        "\u0905": "a", "\u0906": "aa", "\u0907": "i", "\u0908": "ii", "\u0909": "u", "\u090A": "uu",
+        "\u090F": "e", "\u0910": "ai", "\u0913": "o", "\u0914": "au",
+    }
+    HALANT, ANUSVARA, CHANDRA, NUKTA, VISARGA = "\u094D", "\u0902", "\u0901", "\u093C", "\u0903"
+    words = []
+    for word in text.split():
+        if not word:
+            continue
+        syls = []
+        chars = list(word)
+        i = 0
+        while i < len(chars):
+            ch, nxt = chars[i], chars[i + 1] if i + 1 < len(chars) else None
+            if ch in CONS:
+                if nxt in SIGN:
+                    syls.append((CONS[ch], SIGN[nxt])); i += 2; continue
+                if nxt == HALANT:
+                    syls.append((CONS[ch], "")); i += 2; continue
+                if nxt in (ANUSVARA, CHANDRA):
+                    syls.append((CONS[ch], "a")); syls.append(("n", None)); i += 2; continue
+                if nxt == VISARGA:
+                    syls.append((CONS[ch], "a")); i += 2; continue
+                syls.append((CONS[ch], "a")); i += 1; continue
+            if ch in IND:
+                syls.append(("", IND[ch])); i += 1; continue
+            if ch in (HALANT, NUKTA, VISARGA):
+                i += 1; continue
+            if "\u0900" <= ch <= "\u097F":
+                syls.append((" ", None)); i += 1; continue
+            syls.append((ch, None)); i += 1
+        out = []
+        for k, (base, vowel) in enumerate(syls):
+            if vowel == "a":
+                is_final = k == len(syls) - 1
+                prev_has_vowel = k > 0 and syls[k - 1][1] not in (None, "")
+                nxt = syls[k + 1] if k + 1 < len(syls) else None
+                before_explicit = nxt and nxt[0] and nxt[0][0] in "bcdfghjklmnpqrstvwxyz" and nxt[1] not in (None, "", "a")
+                if is_final or (prev_has_vowel and before_explicit):
+                    out.append(base); continue
+            out.append(base + (vowel or ""))
+        words.append("".join(out))
+    return re.sub(r"\s+", " ", " ".join(words)).strip()
+
+
 class CandidateRanker:
     """Ranks song candidates using multi-signal lyric-content-first scoring."""
 
@@ -566,6 +630,9 @@ class CandidateRanker:
     @staticmethod
     def _normalize_text(text: str) -> str:
         """Normalize text for comparison: NFKC, lowercase, strip accents/punct, collapse ws."""
+        # Cross-script: romanize Devanagari before any other normalization
+        if _is_devanagari(text):
+            text = _romanize_devanagari(text)
         # Unicode normalize
         text = unicodedata.normalize('NFKC', text)
         text = text.lower().strip()

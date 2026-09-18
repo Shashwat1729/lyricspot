@@ -226,15 +226,22 @@ function sharesContentWord(a: Set<string>, b: Set<string>): boolean {
 }
 
 /**
- * Same-recording family: near-identical best lyric lines AND a shared
- * title content word. Groups covers/remixes/live takes whose titles differ
+ * Same-recording family: near-identical best lyric lines AND shared
+ * title evidence. Groups covers/remixes/live takes whose titles differ
  * ("Hey Jude - Live at ...") while keeping apart different songs that
- * merely quote one line (medleys) or share a common phrase.
+ * merely quote one line (medleys) or share a generic word like "hum".
+ * Both conditions are bounded and song-agnostic.
  */
 function sameLyricFamily(lineA: string, lineB: string, wordsA: Set<string>, wordsB: Set<string>): boolean {
   if (!lineA || !lineB || !wordsA.size || !wordsB.size) return false;
-  if (!sharesContentWord(wordsA, wordsB)) return false;
-  return tokenScore(lineA, lineB) >= 0.88;
+  if (tokenScore(lineA, lineB) < 0.82) return false;
+  // Distinctive shared word (length >=4, not a particle) or Jaccard >=0.25
+  let sharedLong = false;
+  let inter = 0;
+  wordsA.forEach(w => { if (wordsB.has(w)) { inter++; if (w.length >= 4) sharedLong = true; } });
+  if (sharedLong) return true;
+  const union = wordsA.size + wordsB.size - inter;
+  return union > 0 && inter / union >= 0.25;
 }
 
 /** A same-song alternate version attached to a result. */
@@ -254,11 +261,13 @@ function cleanArtist(name: string): string {
 }
 
 /**
- * Popularity 0..1. Prefers the visitor's own Spotify app (exact popularity
- * field) when Spotify keys are saved; otherwise falls back to the keyless
- * iTunes Search position proxy. Never throws.
+ * Popularity 0..1 with source tag. Prefers the visitor's own Spotify app
+ * (exact popularity field, source='spotify') when Spotify keys are saved;
+ * otherwise falls back to the keyless iTunes Search position proxy
+ * (source='proxy'). Never throws. Source matters: tie logic trusts
+ * Spotify decisively, proxy only when its spread is strong.
  */
-async function trackPopularity(track: string, artist: string): Promise<number> {
+async function trackPopularity(track: string, artist: string): Promise<{ value: number; source: 'spotify' | 'proxy' }> {
   const keys = getMusicKeys();
   if (keys.spotifyId && keys.spotifySecret) {
     try {
@@ -273,7 +282,7 @@ async function trackPopularity(track: string, artist: string): Promise<number> {
           const j: any = await r.json();
           const items: any[] = j?.tracks?.items || [];
           if (items.length && typeof items[0].popularity === "number") {
-            return Math.max(0, Math.min(1, items[0].popularity / 100));
+            return { value: Math.max(0, Math.min(1, items[0].popularity / 100)), source: 'spotify' };
           }
         }
       }
@@ -284,16 +293,16 @@ async function trackPopularity(track: string, artist: string): Promise<number> {
   try {
     const term = artist ? track + " " + artist : track;
     const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(term) + "&entity=song&limit=5", { signal: timeoutSignal(4000) });
-    if (!r.ok) return 0;
+    if (!r.ok) return { value: 0, source: 'proxy' };
     const j: any = await r.json();
     const list: any[] = j.results || [];
     for (const t of list) {
       const dt = (t.trackName || "").toLowerCase();
-      if (dt && (track.toLowerCase().includes(dt) || dt.includes(track.toLowerCase()))) return 1 - (list.indexOf(t) / 5);
+      if (dt && (track.toLowerCase().includes(dt) || dt.includes(track.toLowerCase()))) return { value: 1 - (list.indexOf(t) / 5), source: 'proxy' };
     }
-    return 0;
+    return { value: 0, source: 'proxy' };
   } catch {
-    return 0;
+    return { value: 0, source: 'proxy' };
   }
 }
 
@@ -336,6 +345,7 @@ interface RankedCandidate {
   score: number;
   titleBonus: number;
   pop: number;
+  popSource: 'spotify' | 'proxy';
   final: number;
   estimated: boolean;
 }
@@ -349,13 +359,17 @@ async function rerankByPopularity(
   const withPop: RankedCandidate[] = await Promise.all(candidates.map(async (c) => {
     const track = c.item.trackName || "";
     const artist = cleanArtist(c.item.artistName || "");
-    const pop = await trackPopularity(track, artist);
+    const { value: pop, source: popSource } = await trackPopularity(track, artist);
     const titleBonus = tokenScore(transcript.toLowerCase(), (track + " " + artist).toLowerCase());
-    return { ...c, titleBonus, pop, final: 0 };
+    return { ...c, titleBonus, pop, popSource, final: 0 };
   }));
   const pops = withPop.map(c => c.pop);
   const spread = pops.length ? Math.max(...pops) - Math.min(...pops) : 0;
-  const usePop = spread >= 0.2;
+  const hasSpotify = withPop.some(c => c.popSource === 'spotify');
+  // Proxy noise: many entries return 1.0 as top of their own search, so
+  // raw spread is often 0 even when real popularities differ. Trust
+  // proxy only with a larger spread; Spotify is trusted at 0.15.
+  const usePop = hasSpotify ? spread >= 0.15 : spread >= 0.30;
 
   // Dynamic weights
   let wLyric = 0.65, wPop = 0.25, wTitle = 0.10;
@@ -378,9 +392,11 @@ async function rerankByPopularity(
   // is decisive; otherwise it abstains and retrieval rank decides.
   const maxScore = withPop.length ? Math.max(...withPop.map(c => c.score)) : 0;
   const inCluster = (c: RankedCandidate) => withPop.length > 1 && (maxScore - c.score) <= 0.05;
-  const clusterPops = withPop.filter(inCluster).map(c => c.pop);
+  const clusterMembers = withPop.filter(inCluster);
+  const clusterPops = clusterMembers.map(c => c.pop);
   const clusterSpread = clusterPops.length > 1 ? Math.max(...clusterPops) - Math.min(...clusterPops) : 0;
-  const popDecisive = usePop && clusterSpread >= 0.25;
+  const clusterHasSpotify = clusterMembers.some(c => c.popSource === 'spotify');
+  const popDecisive = usePop && (clusterHasSpotify ? clusterSpread >= 0.15 : clusterSpread >= 0.30);
 
   for (const c of withPop) {
     const rank = typeof c.item._retrievalRank === "number" ? c.item._retrievalRank : 8;
@@ -582,7 +598,16 @@ function tokenScore(a: string, b: string, soft = false): number {
   } else {
     ta.forEach(w => { if (tb.has(w)) inter++; });
   }
-  if (inter >= ta.size - 1e-9) return 0.92;
+  if (inter >= ta.size - 1e-9) {
+    // Gated containment: single-word or stop-word-only queries must not
+    // jump to 0.92 — they'd make every line containing that word look
+    // like a verbatim hook. Require at least 2 content tokens or 3 total
+    // before granting the near-verbatim floor; otherwise fall through to
+    // the BM25-style scorer where length and distinctiveness matter.
+    const contentCount = cleanA.filter(w => !STOP.has(w) && w.length >= 2).length;
+    if (ta.size >= 3 || contentCount >= 2 || (ta.size === 2 && contentCount === 2)) return 0.92;
+    if (ta.size === 1 && contentCount === 1 && cleanA[0].length >= 5) return 0.92;
+  }
   // BM25-inspired: term saturation + length normalization.
   // Short exact lines like "hello" (1 word) should not outrank a focused
   // 6-word verse that contains the same rare word.
@@ -714,7 +739,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const pushList = (list: any[]) => {
     for (const item of list) {
       const key = ((item.trackName || "").toLowerCase()) + "|" + canonicalArtist(item.artistName || "");
-      if (!seenTracks.has(key) && data.length < 30) { data.push(item); seenTracks.add(key); }
+      if (!seenTracks.has(key) && data.length < 40) { data.push(item); seenTracks.add(key); }
     }
   };
   for (const entries of musixEntries) pushList(entries);
@@ -722,6 +747,18 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   for (const list of lrclibSettled) pushList(list);
   for (const list of itunesSettled) pushList(list);
   for (const list of ovhSettled) pushList(list);
+  // Hard guarantee: if still thin, widen with a focused LRCLIB pass on
+  // the full transcript (phrase q) before scoring — browser q parser is
+  // strict and can miss when content-word queries are poor.
+  if (data.length < 5) {
+    try {
+      const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(clean), { signal: timeoutSignal(6000) });
+      if (r.ok) {
+        const d: any[] = await r.json();
+        if (Array.isArray(d)) pushList(d);
+      }
+    } catch { /* ignore */ }
+  }
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
   onProgress?.("lyrics", "Matching lyrics...");
@@ -746,11 +783,12 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     }
   };
   scorePool();
-  // Deep resolve: when line-verified evidence is thin (<3), pull lyrics
+  // Deep resolve: when line-verified evidence is thin (<5), pull lyrics
   // for the metadata-only pool (iTunes/suggest titles) and re-score.
-  // Bounded (6 pairs), parallel, fail-soft — costs nothing when pass one
-  // already found enough.
-  if (scored.length < 3) {
+  // Bounded (8 pairs), parallel, fail-soft — costs nothing when pass one
+  // already found enough, but saves Hindi/rare queries where the lyric
+  // text lives elsewhere.
+  if (scored.length < 5) {
     onProgress?.("searching", "Digging deeper...");
     const metaSeen = new Set<string>();
     const meta: { title: string; artist: string }[] = [];
@@ -758,7 +796,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       const key = (t || "").toLowerCase() + "|" + canonicalArtist(a || "");
       if (!t || metaSeen.has(key)) return;
       metaSeen.add(key);
-      if (meta.length < 6) meta.push({ title: t, artist: a });
+      if (meta.length < 8) meta.push({ title: t, artist: a });
     };
     for (const list of [...itunesSettled, ...ovhSettled]) {
       for (const item of list) considerMeta(item.trackName || "", item.artistName || "");
@@ -782,7 +820,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
             data[at] = e;
             added = true;
           }
-        } else if (data.length < 36) {
+        } else if (data.length < 44) {
           data.push(e);
           seenTracks.add(key);
           added = true;
@@ -845,8 +883,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // used as the popularity proxy (no key needed, CORS-open).
   onProgress?.("candidate_ready", "Ranking by popularity...");
   // Slice by LYRIC score, not raw search order — the true match often sits
-  // below title-coincidences in provider order.
-  const ranked = await rerankByPopularity(clean, scored.sort((a, b) => b.score - a.score).slice(0, 10));
+  // below title-coincidences in provider order. 15 keeps recall for
+  // Top-5 + Load More while bounded for perf.
+  const ranked = await rerankByPopularity(clean, scored.sort((a, b) => b.score - a.score).slice(0, 15));
   // Cover grouping: same song (version-stripped title OR near-identical
   // best lyric + shared title word) counts as one song. Ranked order puts
   // the strongest version first, so it becomes the group head; the rest
@@ -873,7 +912,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       }
     }
     if (!placed) {
-      if (groups.length >= 10) break;
+      if (groups.length >= 12) break;
       placed = { key, head: c, headLine: line, headWords: words, covers: [] };
       groups.push(placed);
     } else if (placed.head !== c && placed.covers.length < 6) {
@@ -889,9 +928,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
         });
       }
     }
-    // Up to 10 distinct songs: Top 5 initially, Load More pages the rest
-    // (5 → 8 → 10). Never fabricate — stop when the pool is exhausted.
-    if (groups.length >= 10) break;
+    // Up to 12 distinct songs: Top 5 initially, Load More pages the rest
+    // (5 → 8 → 11 → 12). Never fabricate — stop when the pool is exhausted.
+    if (groups.length >= 12) break;
   }
   const top = groups.map(g => g.head);
 
@@ -971,7 +1010,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       isBrowser: true,
     }));
     if (!results.length) return { transcript: clean, results: bareCards.slice(0, 5) };
-    const room = Math.max(0, 10 - results.length);
+    const room = Math.max(0, 12 - results.length);
     results.push(...bareCards.slice(0, room));
     // Merge by confidence (stable): index evidence at 55 outranks weak
     // partial-line matches in the low 50s, but never line-verified highs.

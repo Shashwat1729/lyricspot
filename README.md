@@ -90,6 +90,32 @@ Each row has a **Test** button so you can verify a key before saving. No paid AP
 If you run your own backend elsewhere, set it under **API keys → Advanced** (top right). That URL is saved on your device and takes precedence. Or host `backend/` once (HuggingFace Spaces / Render / Railway — Dockerfile already handles `PORT`, just set `CORS_ORIGINS=https://shashwat1729.github.io`) and bake it in with `NEXT_PUBLIC_API_URL=https://your-host npm run build`.
 
 
+## Architecture — how a lyric becomes a ranked result
+
+```
+Input (voice or typed)
+  → Retrieval (broad, never early-stop)
+      Backend: YouTube + Genius (+token) + iTunes + Musixmatch + Deezer + MusicBrainz in parallel, merged by provider agreement
+      Browser: Genius lyric discovery (+token via access_token=) + Musixmatch q_lyrics + LRCLIB q + iTunes + lyrics.ovh suggest, deduped, pool ≤40
+  → Lyric enrichment
+      LRCLIB structured search → lyrics.ovh plain-text fallback; synced LRC parsed, plain split, boilerplate stripped
+      Deep resolve when <5 scored: pull lyrics for metadata-only pool and re-score
+  → Scoring
+      Best line per song via tokenScore (BM25-style, length-normed, containment-gated) + pair stitching; cross-script via Devanagari romanization + relaxed vowels
+  → Ranking (deterministic, testable)
+      Frontend: 0.65 lyric / 0.25 popularity / 0.10 title with 5 dynamic rules (exact hook, short/long query, flat popularity, lyric-tie cluster); popularity is Spotify when keys exist else iTunes proxy (source-tagged)
+      Backend: 0.50 lyric / 0.20 coverage / 0.10 locality / 0.10 title / 0.05 popularity / 0.05 provider agreement + bounded lyric-tie pop nudge + constraint floors/ceilings
+      Confidence ≠ rank: #1 can still be "uncertain" when absolute evidence or margin is weak
+  → Pagination
+      12 distinct songs max (deduped + cover-grouped: version suffixes stripped, lyric-family clustering), Top 5 → Load 3 → Load 3… (5/8/11), stable order, no duplicates, no re-search, honest empty/end states
+```
+
+No song, language, or query is hardcoded. Every case in `backend/tests/eval_dataset.json` (31 cases with hard negatives) is a regression harness, not production logic.
+
+## Evaluation
+
+`pytest backend/tests/test_comprehensive_eval.py` measures Top-1/Top-3/Top-5, MRR/Recall@5 on the dataset; `pytest backend/tests/test_ranking.py` asserts lyric-content-first ordering (e.g. Hey Jude lyric vs title trap) remains green. Frontend has a 36-assertion harness (`verify-browsersearch.cjs`) covering romanization, scoring, version stripping, and cover grouping.
+
 ## Screenshots
 
 Live capture from the GitHub Pages site — real browser search via LRCLIB + iTunes, zero backend.
