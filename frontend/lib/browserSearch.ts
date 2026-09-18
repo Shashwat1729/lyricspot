@@ -123,15 +123,33 @@ async function geniusLyricCandidates(transcript: string): Promise<{ title: strin
   }
 }
 
-/** Pull LRCLIB lyric entries for a known (title, artist) via structured search. */
-async function lrclibLyricsFor(title: string, artist: string): Promise<any[]> {
+/**
+ * Lyric entries for a known (title, artist): LRCLIB structured search
+ * first (synced + plain), falling back to lyrics.ovh plain text when
+ * LRCLIB has nothing. Two independent lyric-text sources, same shape —
+ * plain-only entries get synthetic timestamps downstream (flagged
+ * estimated), exactly like LRCLIB plain entries.
+ */
+async function fetchLyricEntries(title: string, artist: string): Promise<any[]> {
   try {
     const url = "https://lrclib.net/api/search?track_name=" + encodeURIComponent(title)
       + (artist ? "&artist_name=" + encodeURIComponent(artist) : "");
     const r = await fetch(url, { signal: timeoutSignal(5000) });
+    if (r.ok) {
+      const d: any = await r.json();
+      if (Array.isArray(d) && d.length) return d.slice(0, 2);
+    }
+  } catch {
+    // fall through to lyrics.ovh
+  }
+  if (!artist) return [];
+  try {
+    const r = await fetch("https://api.lyrics.ovh/v1/" + encodeURIComponent(artist) + "/" + encodeURIComponent(title), { signal: timeoutSignal(5000) });
     if (!r.ok) return [];
-    const d: any = await r.json();
-    return Array.isArray(d) ? d.slice(0, 2) : [];
+    const j: any = await r.json().catch(() => null);
+    const text = (j && j.lyrics ? String(j.lyrics) : "").trim();
+    if (text.length < 30) return [];
+    return [{ trackName: title, artistName: artist, plainLyrics: text, syncedLyrics: "", duration: 0, _ovh: true }];
   } catch {
     return [];
   }
@@ -300,6 +318,14 @@ async function trackPopularity(track: string, artist: string): Promise<number> {
  *          breaks whatever ties remain; it can never outweigh a real
  *          lyric gap outside a tie.
  */
+interface ScoredEntry {
+  item: any;
+  lines: { t: number; text: string }[];
+  bestIdx: number;
+  score: number;
+  estimated: boolean;
+}
+
 interface RankedCandidate {
   item: any;
   lines: { t: number; text: string }[];
@@ -313,7 +339,7 @@ interface RankedCandidate {
 
 async function rerankByPopularity(
   transcript: string,
-  candidates: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number; estimated: boolean }[]
+  candidates: ScoredEntry[]
 ): Promise<RankedCandidate[]> {
   const wordCount = transcript.trim().split(/\s+/).filter(Boolean).length;
   const maxLyric = Math.max(...candidates.map(c => c.score), 0);
@@ -603,7 +629,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
   // title-based and often finds the famous original when LRCLIB returns
   // only covers for the same lyric phrase.
-  const [geniusPairs, musixPairs, lrclibSettled, itunesSettled] = await Promise.all([
+  const [geniusPairs, musixPairs, lrclibSettled, itunesSettled, ovhSettled] = await Promise.all([
     geniusLyricCandidates(clean),
     musixmatchLyricCandidates(clean),
     Promise.all(deduped.map(async (q) => {
@@ -636,20 +662,38 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
         return [];
       }
     })),
+    // lyrics.ovh suggest (Deezer index — different catalog than iTunes,
+    // stronger for some regions). Metadata only; resolved to lyrics later.
+    Promise.all(deduped.slice(0, 2).map(async (q) => {
+      try {
+        const r = await fetch("https://api.lyrics.ovh/suggest/" + encodeURIComponent(q), { signal: timeoutSignal(5000) });
+        if (!r.ok) return [];
+        const j: any = await r.json().catch(() => null);
+        const list: any[] = (j && j.data) || [];
+        return list.slice(0, 6).map((t: any) => ({
+          trackName: t.title || "",
+          artistName: (t.artist && t.artist.name) || "",
+          plainLyrics: "",
+          syncedLyrics: "",
+        }));
+      } catch {
+        return [];
+      }
+    })),
   ]);
   // Resolve Genius (title, artist) pairs to LRCLIB lyric entries (fail-soft
   // each). These are lyric-motivated candidates, so they join the pool first.
   onProgress?.("searching", "Checking lyric matches...");
   const geniusEntries = await Promise.all(
     geniusPairs.slice(0, 8).map(async (p) => {
-      const entries = await lrclibLyricsFor(p.title, p.artist);
+      const entries = await fetchLyricEntries(p.title, p.artist);
       for (const e of entries) { e._genius = true; e._retrievalRank = p.rank; }
       return entries;
     })
   );
   const musixEntries = await Promise.all(
     musixPairs.slice(0, 8).map(async (p) => {
-      const entries = await lrclibLyricsFor(p.title, p.artist);
+      const entries = await fetchLyricEntries(p.title, p.artist);
       for (const e of entries) { e._musix = true; e._retrievalRank = p.rank; }
       return entries;
     })
@@ -666,25 +710,75 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   for (const entries of geniusEntries) pushList(entries);
   for (const list of lrclibSettled) pushList(list);
   for (const list of itunesSettled) pushList(list);
+  for (const list of ovhSettled) pushList(list);
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
   onProgress?.("lyrics", "Matching lyrics...");
-  const scored: { item: any; lines: { t: number; text: string }[]; bestIdx: number; score: number; estimated: boolean }[] = [];
-  // Score every collected candidate, not just the first few — the famous
-  // original often sits below covers in raw search order.
-  for (const item of data) {
-    if (item.instrumental === true) continue;
-    const synced: string = item.syncedLyrics || "";
-    const plain: string = item.plainLyrics || "";
-    let lines = synced ? parseSynced(synced) : plain.split("\n").map((t: string, i: number) => ({ t: i * 3, text: t.trim() })).filter((l: any) => l.text);
-    lines = lines.filter(l => !isBoilerplate(l.text));
-    if (!lines.length) continue;
-    const best = bestLine(clean, lines);
-    if (!best) continue;
-    // keep only reasonable matches (lowered from 0.35 — Nirvana etc. hover ~0.30)
-    if (best.score < 0.25) continue;
-    // Plain-lyric lines get synthetic timestamps (i*3) — flag as estimated.
-    scored.push({ item, lines, bestIdx: best.idx, score: best.score, estimated: !synced });
+  const scored: ScoredEntry[] = [];
+  const scorePool = () => {
+    scored.length = 0;
+    // Score every collected candidate, not just the first few — the famous
+    // original often sits below covers in raw search order.
+    for (const item of data) {
+      if (item.instrumental === true) continue;
+      const synced: string = item.syncedLyrics || "";
+      const plain: string = item.plainLyrics || "";
+      let lines = synced ? parseSynced(synced) : plain.split("\n").map((t: string, i: number) => ({ t: i * 3, text: t.trim() })).filter((l: any) => l.text);
+      lines = lines.filter(l => !isBoilerplate(l.text));
+      if (!lines.length) continue;
+      const best = bestLine(clean, lines);
+      if (!best) continue;
+      // keep only reasonable matches (lowered from 0.35 — Nirvana etc. hover ~0.30)
+      if (best.score < 0.25) continue;
+      // Plain-lyric lines get synthetic timestamps (i*3) — flag as estimated.
+      scored.push({ item, lines, bestIdx: best.idx, score: best.score, estimated: !synced });
+    }
+  };
+  scorePool();
+  // Deep resolve: when line-verified evidence is thin (<3), pull lyrics
+  // for the metadata-only pool (iTunes/suggest titles) and re-score.
+  // Bounded (6 pairs), parallel, fail-soft — costs nothing when pass one
+  // already found enough.
+  if (scored.length < 3) {
+    onProgress?.("searching", "Digging deeper...");
+    const metaSeen = new Set<string>();
+    const meta: { title: string; artist: string }[] = [];
+    const considerMeta = (t: string, a: string) => {
+      const key = (t || "").toLowerCase() + "|" + canonicalArtist(a || "");
+      if (!t || metaSeen.has(key)) return;
+      metaSeen.add(key);
+      if (meta.length < 6) meta.push({ title: t, artist: a });
+    };
+    for (const list of [...itunesSettled, ...ovhSettled]) {
+      for (const item of list) considerMeta(item.trackName || "", item.artistName || "");
+    }
+    if (meta.length) {
+      const resolved = await Promise.all(meta.map(async (m) => {
+        const entries = await fetchLyricEntries(m.title, m.artist);
+        for (const e of entries) e._deep = true;
+        return entries;
+      }));
+      const trackKeyOf = (t: string, a: string) => ((t || "").toLowerCase()) + "|" + canonicalArtist(a || "");
+      let added = false;
+      const flatResolved: any[] = [];
+      for (const entries of resolved) for (const e of entries) flatResolved.push(e);
+      for (const e of flatResolved) {
+        const key = trackKeyOf(e.trackName || "", e.artistName || "");
+        const at = data.findIndex(d => trackKeyOf(d.trackName || "", d.artistName || "") === key);
+        if (at >= 0) {
+          if (!data[at].syncedLyrics && !data[at].plainLyrics) {
+            if (data[at]._itunesArt && !e._itunesArt) e._itunesArt = data[at]._itunesArt;
+            data[at] = e;
+            added = true;
+          }
+        } else if (data.length < 36) {
+          data.push(e);
+          seenTracks.add(key);
+          added = true;
+        }
+      }
+      if (added) scorePool();
+    }
   }
   // Title fallback: some tracks (e.g. "Smells Like Teen Spirit") never
   // repeat the title in the synced lyrics, so lyric-only scoring can miss
