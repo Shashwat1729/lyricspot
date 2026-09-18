@@ -105,30 +105,51 @@ def _romanize_devanagari(text: str) -> str:
             ch, nxt = chars[i], chars[i + 1] if i + 1 < len(chars) else None
             if ch in CONS:
                 if nxt in SIGN:
-                    syls.append((CONS[ch], SIGN[nxt])); i += 2; continue
+                    syls.append((CONS[ch], SIGN[nxt]))
+                    i += 2
+                    continue
                 if nxt == HALANT:
-                    syls.append((CONS[ch], "")); i += 2; continue
+                    syls.append((CONS[ch], ""))
+                    i += 2
+                    continue
                 if nxt in (ANUSVARA, CHANDRA):
-                    syls.append((CONS[ch], "a")); syls.append(("n", None)); i += 2; continue
+                    syls.append((CONS[ch], "a"))
+                    syls.append(("n", None))
+                    i += 2
+                    continue
                 if nxt == VISARGA:
-                    syls.append((CONS[ch], "a")); i += 2; continue
-                syls.append((CONS[ch], "a")); i += 1; continue
+                    syls.append((CONS[ch], "a"))
+                    i += 2
+                    continue
+                syls.append((CONS[ch], "a"))
+                i += 1
+                continue
             if ch in IND:
-                syls.append(("", IND[ch])); i += 1; continue
+                syls.append(("", IND[ch]))
+                i += 1
+                continue
             if ch in (HALANT, NUKTA, VISARGA):
-                i += 1; continue
+                i += 1
+                continue
             if "\u0900" <= ch <= "\u097F":
-                syls.append((" ", None)); i += 1; continue
-            syls.append((ch, None)); i += 1
+                syls.append((" ", None))
+                i += 1
+                continue
+            syls.append((ch, None))
+            i += 1
         out = []
         for k, (base, vowel) in enumerate(syls):
             if vowel == "a":
                 is_final = k == len(syls) - 1
                 prev_has_vowel = k > 0 and syls[k - 1][1] not in (None, "")
                 nxt = syls[k + 1] if k + 1 < len(syls) else None
-                before_explicit = nxt and nxt[0] and nxt[0][0] in "bcdfghjklmnpqrstvwxyz" and nxt[1] not in (None, "", "a")
+                before_explicit = (
+                    nxt and nxt[0] and nxt[0][0] in "bcdfghjklmnpqrstvwxyz"
+                    and nxt[1] not in (None, "", "a")
+                )
                 if is_final or (prev_has_vowel and before_explicit):
-                    out.append(base); continue
+                    out.append(base)
+                    continue
             out.append(base + (vowel or ""))
         words.append("".join(out))
     return re.sub(r"\s+", " ", " ".join(words)).strip()
