@@ -71,9 +71,23 @@ export function isCustomApiBase(): boolean {
   return getApiBaseOverride() !== null;
 }
 
+function isLocalHost(urlOrHost: string): boolean {
+  return /(^|\.)localhost$|^127\.0\.0\.1$|^0\.0\.0\.0$|^\[::1\]$/.test(
+    (urlOrHost || "").toLowerCase().replace(/^https?:\/\//, "").split(/[/:]/)[0]
+  );
+}
+
 /** Quick backend reachability probe for the Settings "Test" button. */
 export async function checkBackendHealth(timeoutMs = 5000): Promise<{ ok: boolean; detail: string }> {
   const base = getApiBase();
+  // On a public deploy with no custom server configured, the default
+  // localhost backend can never be there — fail quietly instead of logging
+  // console errors on every page load. Explicit Test-button checks with a
+  // saved localhost override still probe (the visitor may run one).
+  if (typeof window !== "undefined" && !isCustomApiBase()
+      && isLocalHost(base) && !isLocalHost(window.location.hostname)) {
+    return { ok: false, detail: "No backend configured — static demo mode." };
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

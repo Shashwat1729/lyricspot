@@ -310,13 +310,16 @@ async function trackPopularity(track: string, artist: string): Promise<number> {
  *          dominant.
  * Rule 4 — Flat popularity (spread < 0.2, all obscure): drop pop entirely,
  *          renormalize the remaining two.
- * Rule 5 — Lyric tie (top two lyric scores within 0.05, e.g. the same
+ * Rule 5 — Lyric tie (all scores within 0.05 of the max, e.g. the same
  *          lyric attached to several entries): lyric evidence can't
- *          separate them, so the more popular original must win. Raise the
- *          popularity weight (taken from lyric weight). A small
- *          retrieval-order prior (≤2 pts, provider's own relevance rank)
- *          breaks whatever ties remain; it can never outweigh a real
- *          lyric gap outside a tie.
+ *          separate the tied cluster. Inside the cluster only:
+ *          (a) if popularity spread there is decisive (>= 0.25 — real
+ *          Spotify values, not proxy noise), the more popular original
+ *          wins with boosted pop weight;
+ *          (b) otherwise popularity ABSTAINS (proxies all read ~1.0 and
+ *          can't compare across songs) and the provider's own relevance
+ *          rank decides with a bounded prior (≤5 pts). Both act strictly
+ *          inside the tie — outside it, base weights are untouched.
  */
 interface ScoredEntry {
   item: any;
@@ -370,18 +373,26 @@ async function rerankByPopularity(
     const sum = wLyric + wTitle;
     wLyric /= sum; wTitle /= sum; wPop = 0;
   }
-  // Rule 5 — lyric tie: shift weight from lyric (indecisive) to popularity
-  // so the more popular original wins; keep weights summing to 1.
-  const topScores = withPop.map(c => c.score).sort((a, b) => b - a);
-  if (usePop && topScores.length > 1 && topScores[0] - topScores[1] <= 0.05 && wPop < 0.30) {
-    wLyric -= (0.30 - wPop);
-    wPop = 0.30;
-  }
+  // Rule 5 — lyric-tie cluster: members within 0.05 of the max lyric
+  // score. Inside the cluster, popularity judges only when its own spread
+  // is decisive; otherwise it abstains and retrieval rank decides.
+  const maxScore = withPop.length ? Math.max(...withPop.map(c => c.score)) : 0;
+  const inCluster = (c: RankedCandidate) => withPop.length > 1 && (maxScore - c.score) <= 0.05;
+  const clusterPops = withPop.filter(inCluster).map(c => c.pop);
+  const clusterSpread = clusterPops.length > 1 ? Math.max(...clusterPops) - Math.min(...clusterPops) : 0;
+  const popDecisive = usePop && clusterSpread >= 0.25;
 
   for (const c of withPop) {
     const rank = typeof c.item._retrievalRank === "number" ? c.item._retrievalRank : 8;
-    c.final = wLyric * c.score + wPop * c.pop + wTitle * c.titleBonus
-      + 0.02 * (1 - Math.min(rank, 8) / 8);
+    let wL = wLyric, wP = wPop;
+    let retrievalBonus = 0;
+    if (inCluster(c)) {
+      // Keep weights summing to 1: whatever pop gains, lyric yields.
+      wP = popDecisive ? Math.max(wPop, 0.30) : Math.min(wPop, 0.05);
+      wL = wLyric + (wPop - wP);
+      retrievalBonus = 0.05 * (1 - Math.min(rank, 8) / 8);
+    }
+    c.final = wL * c.score + wP * c.pop + wTitle * c.titleBonus + retrievalBonus;
   }
   withPop.sort((a, b) => b.final - a.final || b.score - a.score || b.pop - a.pop);
   return withPop;
