@@ -207,32 +207,42 @@ export async function testGeniusKey(token: string): Promise<{ ok: boolean; detai
 }
 
 let spotifyTokenCache: { token: string; expiresAt: number } | null = null;
+// Shared in-flight request: popularity lookups run ~10-way parallel, and
+// without this every one fires its own token POST (cache stampede that
+// wastes quota and risks rate-limiting the token endpoint).
+let spotifyTokenInflight: Promise<string | null> | null = null;
 
 /** Client-credentials token for the visitor's own Spotify app. Cached in memory. */
 export async function spotifyAppToken(id: string, secret: string): Promise<string | null> {
   if (!id.trim() || !secret.trim()) return null;
   if (spotifyTokenCache && Date.now() < spotifyTokenCache.expiresAt) return spotifyTokenCache.token;
-  try {
-    const r = await fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: "Basic " + btoa(id.trim() + ":" + secret.trim()),
-      },
-      body: "grant_type=client_credentials",
-      signal: timeoutSignal(10000),
-    });
-    if (!r.ok) return null;
-    const j: any = await r.json().catch(() => null);
-    if (!j?.access_token) return null;
-    spotifyTokenCache = {
-      token: j.access_token,
-      expiresAt: Date.now() + Math.max(60, (j.expires_in || 3600) - 120) * 1000,
-    };
-    return spotifyTokenCache.token;
-  } catch {
-    return null;
-  }
+  if (spotifyTokenInflight) return spotifyTokenInflight;
+  spotifyTokenInflight = (async () => {
+    try {
+      const r = await fetch("https://accounts.spotify.com/api/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: "Basic " + btoa(id.trim() + ":" + secret.trim()),
+        },
+        body: "grant_type=client_credentials",
+        signal: timeoutSignal(10000),
+      });
+      if (!r.ok) return null;
+      const j: any = await r.json().catch(() => null);
+      if (!j?.access_token) return null;
+      spotifyTokenCache = {
+        token: j.access_token,
+        expiresAt: Date.now() + Math.max(60, (j.expires_in || 3600) - 120) * 1000,
+      };
+      return spotifyTokenCache.token;
+    } catch {
+      return null;
+    } finally {
+      spotifyTokenInflight = null;
+    }
+  })();
+  return spotifyTokenInflight;
 }
 
 /**

@@ -113,6 +113,12 @@ Input (voice or typed)
 
 No song, language, or query is hardcoded. Every case in `backend/tests/eval_dataset.json` (31 cases with hard negatives) is a regression harness, not production logic.
 
+## Honest limits (read before judging a result)
+
+- **Genuine ambiguity is reported, not hidden.** When the query words ARE one song's title AND another song's lyric (e.g. a Noha quoting a film hook), both are legitimate #1s — the system ranks them neck-and-neck with a "Close call" banner instead of fabricating certainty. Singing a longer line resolves it.
+- **Static demo ceiling.** The GitHub Pages build can only use CORS-open free APIs (LRCLIB, iTunes, lyrics.ovh, Genius + Spotify with your keys). Anything CORS-blocked (Musixmatch, Genius header-auth, search engines except Google CSE with your key) needs the backend. Missing provider lyrics surface as low-confidence cards, never invented context.
+- **Metrics honesty.** Unit suites assert scoring math on synthetic pools; they cannot prove live accuracy. Live Playwright proofs (Hey Jude lyric, Hindi cross-script) are the real bar and are re-run after ranking changes.
+
 ## Evaluation
 
 `pytest backend/tests/test_comprehensive_eval.py` measures Top-1/Top-3/Top-5, MRR/Recall@5 on the dataset; `pytest backend/tests/test_ranking.py` asserts lyric-content-first ordering (e.g. Hey Jude lyric vs title trap) remains green. Frontend has a 36-assertion harness (`verify-browsersearch.cjs`) covering romanization, scoring, version stripping, and cover grouping.
