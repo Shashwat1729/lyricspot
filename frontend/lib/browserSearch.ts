@@ -958,19 +958,30 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   const bestScored = scored.length ? Math.max(...scored.map(s => s.score)) : 0;
   if (scored.length < 5 || bestScored < 0.75) {
     onProgress?.("searching", "Digging deeper...");
+    // Prioritize by title similarity to the query (retrieval prior only —
+    // scoring still decides): sequential fill would starve later queries
+    // (e.g. spelling variants) behind earlier junk. Skip tracks that
+    // already carry lyrics in the pool — resolving them again is waste.
+    const hasLyricsInPool = (t: string, a: string) => {
+      const key = (t || "").toLowerCase() + "|" + canonicalArtist(a || "");
+      return data.some(d => ((d.trackName || "").toLowerCase()) + "|" + canonicalArtist(d.artistName || "") === key
+        && (d.syncedLyrics || d.plainLyrics));
+    };
     const metaSeen = new Set<string>();
-    const meta: { title: string; artist: string }[] = [];
+    const meta: { title: string; artist: string; prior: number }[] = [];
     const considerMeta = (t: string, a: string) => {
       const key = (t || "").toLowerCase() + "|" + canonicalArtist(a || "");
-      if (!t || metaSeen.has(key)) return;
+      if (!t || metaSeen.has(key) || hasLyricsInPool(t, a)) return;
       metaSeen.add(key);
-      if (meta.length < 8) meta.push({ title: t, artist: a });
+      meta.push({ title: t, artist: a, prior: tokenScore(clean, (t + " " + a).toLowerCase()) });
     };
     for (const list of [...itunesSettled, ...ovhSettled]) {
       for (const item of list) considerMeta(item.trackName || "", item.artistName || "");
     }
-    if (meta.length) {
-      const resolved = await Promise.all(meta.map(async (m) => {
+    meta.sort((x, y) => y.prior - x.prior);
+    const metaTop = meta.slice(0, 6);
+    if (metaTop.length) {
+      const resolved = await Promise.all(metaTop.map(async (m) => {
         const entries = await fetchLyricEntries(m.title, m.artist);
         for (const e of entries) e._deep = true;
         return entries;
