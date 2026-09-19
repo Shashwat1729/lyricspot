@@ -27,11 +27,13 @@ export interface MusicKeys {
   musixmatch: string;
   spotifyId: string;
   spotifySecret: string;
+  googleKey: string;
+  googleCx: string;
 }
 
 const STORAGE_KEY = "lyricspot.keys.v1";
 
-const EMPTY: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "" };
+const EMPTY: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "" };
 
 function timeoutSignal(ms: number): AbortSignal {
   if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
@@ -52,7 +54,7 @@ function envDefaults(): MusicKeys {
   // time. Dynamic member access (env[name]) is NOT inlined and always reads
   // empty in the browser.
   if (typeof process === "undefined" || !process.env) {
-    return { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "" };
+    return { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "" };
   }
   const read = (v: string | undefined) => (v || "").trim();
   return {
@@ -60,6 +62,8 @@ function envDefaults(): MusicKeys {
     musixmatch: read(process.env.NEXT_PUBLIC_MUSIXMATCH_KEY),
     spotifyId: read(process.env.NEXT_PUBLIC_SPOTIFY_ID),
     spotifySecret: read(process.env.NEXT_PUBLIC_SPOTIFY_SECRET),
+    googleKey: read(process.env.NEXT_PUBLIC_GOOGLE_KEY),
+    googleCx: read(process.env.NEXT_PUBLIC_GOOGLE_CX),
   };
 }
 
@@ -92,6 +96,8 @@ function readStored(): MusicKeys | null {
       musixmatch: (parsed.musixmatch || "").trim(),
       spotifyId: (parsed.spotifyId || "").trim(),
       spotifySecret: (parsed.spotifySecret || "").trim(),
+      googleKey: (parsed.googleKey || "").trim(),
+      googleCx: (parsed.googleCx || "").trim(),
     };
   } catch {
     return null;
@@ -107,6 +113,8 @@ export function getMusicKeys(): MusicKeys {
     musixmatch: stored.musixmatch || fallback.musixmatch,
     spotifyId: stored.spotifyId || fallback.spotifyId,
     spotifySecret: stored.spotifySecret || fallback.spotifySecret,
+    googleKey: stored.googleKey || fallback.googleKey,
+    googleCx: stored.googleCx || fallback.googleCx,
   };
 }
 
@@ -120,6 +128,8 @@ export function setMusicKeys(keys: MusicKeys): boolean {
     musixmatch: (keys.musixmatch || "").trim(),
     spotifyId: (keys.spotifyId || "").trim(),
     spotifySecret: (keys.spotifySecret || "").trim(),
+    googleKey: (keys.googleKey || "").trim(),
+    googleCx: (keys.googleCx || "").trim(),
   };
   memoryCache = { ...clean };
   if (typeof window === "undefined") return false;
@@ -130,7 +140,9 @@ export function setMusicKeys(keys: MusicKeys): boolean {
       && check.genius === clean.genius
       && check.musixmatch === clean.musixmatch
       && check.spotifyId === clean.spotifyId
-      && check.spotifySecret === clean.spotifySecret;
+      && check.spotifySecret === clean.spotifySecret
+      && check.googleKey === clean.googleKey
+      && check.googleCx === clean.googleCx;
   } catch {
     return false;
   }
@@ -147,7 +159,7 @@ export function clearMusicKeys(): void {
 }
 
 export function hasAnyKey(keys: MusicKeys): boolean {
-  return !!(keys.genius || keys.musixmatch || (keys.spotifyId && keys.spotifySecret));
+  return !!(keys.genius || keys.musixmatch || (keys.spotifyId && keys.spotifySecret) || (keys.googleKey && keys.googleCx));
 }
 
 /** Test a Musixmatch key with a tiny lyric search (same call the engine makes). */
@@ -220,6 +232,31 @@ export async function spotifyAppToken(id: string, secret: string): Promise<strin
     return spotifyTokenCache.token;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Test a Google Custom Search key + engine ID with a 1-result probe
+ * (same call the engine makes; costs 1 of 100 free queries/day).
+ */
+export async function testGoogleKeys(key: string, cx: string): Promise<{ ok: boolean; detail: string }> {
+  if (!key.trim() || !cx.trim()) {
+    return { ok: false, detail: "Paste both the API key and the Search engine ID first (see README)." };
+  }
+  try {
+    const r = await fetch("https://customsearch.googleapis.com/customsearch/v1?q=" + encodeURIComponent("hey jude") + "&num=1&key=" + encodeURIComponent(key.trim()) + "&cx=" + encodeURIComponent(cx.trim()), {
+      signal: timeoutSignal(12000),
+    });
+    if (r.status === 400 || r.status === 403) {
+      const j: any = await r.json().catch(() => null);
+      const msg = j?.error?.message || "invalid key/engine id";
+      return { ok: false, detail: "Google rejected the credentials (" + msg + ")." };
+    }
+    if (r.status === 429) return { ok: false, detail: "Google quota spent for today (100 free/day) — retry tomorrow." };
+    if (!r.ok) return { ok: false, detail: "Google request failed (HTTP " + r.status + ")." };
+    return { ok: true, detail: "Google keys work." };
+  } catch {
+    return { ok: false, detail: "Cannot reach customsearch.googleapis.com — check connection/ad-blocker." };
   }
 }
 

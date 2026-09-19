@@ -640,7 +640,10 @@ class CandidateRanker:
             "compilation", "best of", "reaction", "mashup",
         ]
         if any(kw in artist for kw in spam_indicators) or any(kw in song for kw in spam_indicators):
-            score = min(score, 55)
+            # Derivative recordings (karaoke/tribute/compilations) copy lyrics
+            # verbatim, so lyric evidence alone can't demote them — yet they
+            # must never outrank a credible artist's own recording. Cap hard.
+            score = min(score, 40)
 
         # PENALTY: Very long title (likely a description, not a song)
         if len(song) > 60:

@@ -341,10 +341,12 @@ class TestRankingMetrics:
     def test_ranking_metrics_topk_mrr_recall(self):
         """Rank every decisive dataset case against its hard negatives.
 
-        Correct song gets exact lyric evidence with a modest search prior;
-        hard negatives (or synthetic distractors) get high title priors but
-        poor lyric evidence. A lyric-content-first ranker must still put the
-        correct song on top.
+        Honest bands (not circular): the correct song's lyric evidence is
+        sampled across realistic bands (exact 92 / strong 78 / partial 64 /
+        weak 52) instead of always-exact, while distractors keep high title
+        priors and real popularity. This measures discrimination in the
+        regimes live searches actually hit — partial transliterations,
+        title-traps, and shared-lyric collisions — not just the easy case.
         """
         dataset = _load_dataset()["cases"]
         decisive = [c for c in dataset if not c.get("expect_low_confidence") and c.get("expected_song")]
@@ -353,17 +355,19 @@ class TestRankingMetrics:
         top1 = top3 = top5 = 0
         reciprocal_ranks = []
         failures = []
-        for case in decisive:
+        for idx, case in enumerate(decisive):
             query = case["query"]
+            # Rotate evidence bands so the suite can't pass on exact-only luck.
+            band = [(92, True), (78, False), (64, False), (52, False)][idx % 4]
             correct = {
                 "song": case["expected_song"],
                 "artist": case.get("expected_artist") or "",
-                "lyrics_match_score": 92,
-                "exact_lyrics_match": True,
+                "lyrics_match_score": band[0],
+                "exact_lyrics_match": band[1],
                 "lyrics_available": True,
-                "search_confidence": 62,
-                "source_count": 2,
-                "spotify_popularity": 78,
+                "search_confidence": 55 + (idx % 3) * 8,  # 55/63/71 priors
+                "source_count": 1 + (idx % 3),  # 1..3 providers
+                "spotify_popularity": 45 + (idx % 4) * 12,  # 45..81 fame
             }
             negatives = case.get("hard_negatives") or []
             if negatives:

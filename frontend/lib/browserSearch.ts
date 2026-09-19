@@ -190,6 +190,98 @@ async function musixmatchLyricCandidates(transcript: string): Promise<{ title: s
   }
 }
 
+export interface WebPair {
+  title: string;
+  artist: string;
+}
+
+function cleanupName(s: string): string {
+  return s.replace(/\s+/g, " ").replace(/\s*\(romanized\)\s*/i, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Identify (title, artist) from one web-search result. Pure and strict:
+ * returns null rather than guessing. Handles Genius/AZLyrics title
+ * conventions ("Artist – Title Lyrics") plus a generic "A - B" split and
+ * "Title by Artist" fallback. No song-specific rules.
+ */
+export function parseWebResult(link: string, title: string): WebPair | null {
+  let host = "";
+  try {
+    host = new URL(link).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const text = (title || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length > 120) return null;
+  const stripSite = (s: string) => s
+    .replace(/\s*[|–—\-]\s*(genius lyrics|genius|azlyrics(\.com)?|lyrics\.com|shazam|youtube|spotify|deezer|apple music|musixmatch|lyrics?\s*(\.com)?)\s*$/i, "")
+    .trim();
+  const valid = (artist: string, song: string) => {
+    const a = cleanupName(artist), t = cleanupName(song.replace(/\s*lyrics?\s*$/i, ""));
+    if (!a || !t || a.length < 2 || t.length < 2) return null;
+    if (a.length > 60 || t.length > 80) return null;
+    if (a.toLowerCase() === t.toLowerCase()) return null;
+    return { artist: a, title: t };
+  };
+  const core = stripSite(text);
+  // "Artist – Title" (Genius/AZLyrics/YouTube convention).
+  const dash = core.match(/^(.*?)\s*[–—\-]\s*(.+)$/);
+  if (dash && dash[1] && dash[2]) {
+    const parsed = valid(dash[1], dash[2]);
+    if (parsed) return parsed;
+  }
+  // "Title by Artist".
+  const by = core.match(/^(.*?)\s+by\s+(.+)$/i);
+  if (by && by[1] && by[2]) {
+    const parsed = valid(by[2], by[1]);
+    if (parsed) return parsed;
+  }
+  // AZLyrics slug fallback: /lyrics/artist/title.html (best effort).
+  if (host.includes("azlyrics.com")) {
+    const m = link.match(/\/lyrics\/([a-z0-9]+)\/([a-z0-9]+)\.html/i);
+    if (m) {
+      const deslug = (s: string) => s.replace(/[^a-z0-9 ]/gi, " ").replace(/\s+/g, " ").trim();
+      if (m[1].length >= 3 && m[2].length >= 3) return { artist: deslug(m[1]), title: deslug(m[2]) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Web discovery via Google Custom Search (visitor's free key + engine id):
+ * the closest thing to "just google the lyric" — matches full lyric pages
+ * Genius/AZLyrics indexes miss or rank poorly. Pairs are verified against
+ * LRCLIB/lyrics.ovh like every other source; the index never decides.
+ * Fully fail-soft (keyless browsers simply skip it).
+ */
+async function webSearchCandidates(transcript: string): Promise<{ title: string; artist: string; rank: number }[]> {
+  const keys = getMusicKeys();
+  if (!keys.googleKey || !keys.googleCx) return [];
+  try {
+    const url = "https://customsearch.googleapis.com/customsearch/v1?q=" + encodeURIComponent(transcript)
+      + "&num=8&key=" + encodeURIComponent(keys.googleKey) + "&cx=" + encodeURIComponent(keys.googleCx);
+    const r = await fetch(url, { signal: timeoutSignal(8000) });
+    if (!r.ok) return [];
+    const j: any = await r.json().catch(() => null);
+    const items: any[] = (j && j.items) || [];
+    const out: { title: string; artist: string; rank: number }[] = [];
+    const seen = new Set<string>();
+    for (const it of items) {
+      const parsed = parseWebResult(String(it.link || ""), String(it.title || ""));
+      if (!parsed) continue;
+      const k = parsed.title.toLowerCase() + "|" + parsed.artist.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ ...parsed, rank: out.length });
+      if (out.length >= 8) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Strip version/credit suffixes so alternate releases group as one song:
  * "Hey Jude (Remastered 2015)", "Hey Jude - Live", "Song (feat. A)".
@@ -284,6 +376,10 @@ async function trackPopularity(track: string, artist: string): Promise<{ value: 
           if (items.length && typeof items[0].popularity === "number") {
             return { value: Math.max(0, Math.min(1, items[0].popularity / 100)), source: 'spotify' };
           }
+          // On Spotify with keys but no track found: genuinely obscure —
+          // report low instead of the inflated iTunes proxy 1.0. Proxy
+          // and Spotify scales are not comparable (see Rule 5).
+          return { value: 0.2, source: 'spotify' };
         }
       }
     } catch {
@@ -395,8 +491,11 @@ async function rerankByPopularity(
   const clusterMembers = withPop.filter(inCluster);
   const clusterPops = clusterMembers.map(c => c.pop);
   const clusterSpread = clusterPops.length > 1 ? Math.max(...clusterPops) - Math.min(...clusterPops) : 0;
-  const clusterHasSpotify = clusterMembers.some(c => c.popSource === 'spotify');
-  const popDecisive = usePop && (clusterHasSpotify ? clusterSpread >= 0.15 : clusterSpread >= 0.30);
+  // Like-with-like only: proxy scales (1.0 = top of its own search) and
+  // Spotify scales (0-1 global) are not comparable. A lone proxy 1.0 must
+  // never outrank a Spotify 0.6 on popularity.
+  const clusterAllSpotify = clusterMembers.length > 1 && clusterMembers.every(c => c.popSource === 'spotify');
+  const popDecisive = usePop && clusterAllSpotify && clusterSpread >= 0.15;
 
   for (const c of withPop) {
     const rank = typeof c.item._retrievalRank === "number" ? c.item._retrievalRank : 8;
@@ -409,6 +508,13 @@ async function rerankByPopularity(
       retrievalBonus = 0.05 * (1 - Math.min(rank, 8) / 8);
     }
     c.final = wL * c.score + wP * c.pop + wTitle * c.titleBonus + retrievalBonus;
+    // Derivative recordings (karaoke/tribute/compilations) copy lyrics
+    // verbatim, so lyric evidence alone can't demote them — yet they must
+    // never outrank a credible artist's own recording. Mirrors backend.
+    const spamHay = ((c.item.trackName || "") + " " + (c.item.artistName || "")).toLowerCase();
+    if (/lyrics?|karaoke|cover version|tribute|compilation|best of|reaction|mashup/.test(spamHay)) {
+      c.final = Math.min(c.final, 0.40);
+    }
   }
   withPop.sort((a, b) => b.final - a.final || b.score - a.score || b.pop - a.pop);
   return withPop;
@@ -574,11 +680,15 @@ function tokenScore(a: string, b: string, soft = false): number {
   const ta = new Set(cleanA);
   const tb = new Set(cleanB);
   if (ta.size === 0 || tb.size === 0) return 0;
+  // Per-token credit, one code path for both scripts. Exact always counts.
+  // Relaxed vowels (hum/ham) apply cross-script only — same-script
+  // a/u/o swaps are usually different words (man/men, cat/cut).
+  // Edit-fuzzy covers transcription/romanization variants (rahoon/rahon,
+  // night/light as mishearing): strict same-script (len>=5, sim>=0.80),
+  // looser cross-script (len>=4, sim>=0.72). Each line token is spent at
+  // most once; greedy best-match order is deterministic.
   let inter = 0;
-  if (soft) {
-    // Cross-script credit: human romanization varies (hum/ham, baithe/
-    // baitthae), so near-matches earn partial credit. Each line token is
-    // spent at most once; greedy best-match order is deterministic.
+  {
     const used = new Set<number>();
     ta.forEach(w => {
       let best = 0, bestJ = -1;
@@ -586,17 +696,16 @@ function tokenScore(a: string, b: string, soft = false): number {
         if (used.has(j)) return;
         let c = 0;
         if (v === w) c = 1;
-        else if (relaxedVowelEq(v, w)) c = 0.9;
+        else if (soft && relaxedVowelEq(v, w)) c = 0.9;
         else {
           const sim = editSimilarity(v, w);
-          if (Math.min(v.length, w.length) >= 4 && sim >= 0.72) c = sim;
+          const minLen = Math.min(v.length, w.length);
+          if (soft ? (minLen >= 4 && sim >= 0.72) : (minLen >= 5 && sim >= 0.80)) c = sim;
         }
         if (c > best) { best = c; bestJ = j; }
       });
       if (bestJ >= 0 && best > 0) { used.add(bestJ); inter += best; }
     });
-  } else {
-    ta.forEach(w => { if (tb.has(w)) inter++; });
   }
   if (inter >= ta.size - 1e-9) {
     // Gated containment: single-word or stop-word-only queries must not
@@ -665,9 +774,10 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
   // title-based and often finds the famous original when LRCLIB returns
   // only covers for the same lyric phrase.
-  const [geniusPairs, musixPairs, lrclibSettled, itunesSettled, ovhSettled] = await Promise.all([
+  const [geniusPairs, musixPairs, webPairs, lrclibSettled, itunesSettled, ovhSettled] = await Promise.all([
     geniusLyricCandidates(clean),
     musixmatchLyricCandidates(clean),
+    webSearchCandidates(clean),
     Promise.all(deduped.map(async (q) => {
       try {
         const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
@@ -734,6 +844,13 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       return entries;
     })
   );
+  const webEntries = await Promise.all(
+    webPairs.slice(0, 8).map(async (p) => {
+      const entries = await fetchLyricEntries(p.title, p.artist);
+      for (const e of entries) { e._web = true; e._retrievalRank = p.rank; }
+      return entries;
+    })
+  );
   const data: any[] = [];
   const seenTracks = new Set<string>();
   const pushList = (list: any[]) => {
@@ -744,6 +861,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   };
   for (const entries of musixEntries) pushList(entries);
   for (const entries of geniusEntries) pushList(entries);
+  for (const entries of webEntries) pushList(entries);
   for (const list of lrclibSettled) pushList(list);
   for (const list of itunesSettled) pushList(list);
   for (const list of ovhSettled) pushList(list);
@@ -783,12 +901,13 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     }
   };
   scorePool();
-  // Deep resolve: when line-verified evidence is thin (<5), pull lyrics
-  // for the metadata-only pool (iTunes/suggest titles) and re-score.
-  // Bounded (8 pairs), parallel, fail-soft — costs nothing when pass one
-  // already found enough, but saves Hindi/rare queries where the lyric
-  // text lives elsewhere.
-  if (scored.length < 5) {
+  // Deep resolve: when line-verified evidence is thin — few scored OR
+  // best score weak (junk-filled pool, e.g. title-traps outscoring the
+  // true song whose lyrics live elsewhere) — pull lyrics for the
+  // metadata-only pool (iTunes/suggest titles) and re-score. Bounded
+  // (8 pairs), parallel, fail-soft.
+  const bestScored = scored.length ? Math.max(...scored.map(s => s.score)) : 0;
+  if (scored.length < 5 || bestScored < 0.60) {
     onProgress?.("searching", "Digging deeper...");
     const metaSeen = new Set<string>();
     const meta: { title: string; artist: string }[] = [];
@@ -968,7 +1087,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       ambiguous: occs.length > 1,
       spotify_url: "https://open.spotify.com/search/" + encodeURIComponent(trackName + " " + artistName),
       album_art: arts[i] || "",
-      strategy: c.item._musix ? "musixmatch" : c.item._genius ? "genius" : "lrclib",
+      strategy: c.item._musix ? "musixmatch" : c.item._genius ? "genius" : c.item._web ? "web" : "lrclib",
       covers: (groups[i] && groups[i].covers) || [],
       isBrowser: true,
     };
@@ -976,10 +1095,10 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
 
   // Lyric-index hits with no verifiable lines: Genius matched the lyric
   // text itself (lyrics may be missing, partial, or a different section in
-  // LRCLIB), so the song must not vanish silently. Shown honestly at low
-  // confidence with no context/timestamp: at most the top 3 unmatched
-  // hits with substantial word matches, never duplicating scored results,
-  // never ahead of line-verified evidence.
+  // LRCLIB), so the song must not vanish silently. Safety net, shown
+  // honestly AFTER all line-verified results at low confidence with no
+  // context/timestamp: at most the top 3 unmatched hits with substantial
+  // word matches, never duplicating scored results.
   const scoredKeys = new Set(
     scored.map(s => ((s.item.trackName || "").toLowerCase()) + "|" + canonicalArtist(s.item.artistName || ""))
   );
@@ -996,7 +1115,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     const bareCards: BrowserCandidate[] = geniusBare.map((p, k) => ({
       song: p.title || "Unknown",
       artist: cleanArtist(p.artist || ""),
-      confidence: 55,
+      confidence: 50,
       timestamp: null,
       timestamp_display: null,
       timestamp_estimated: false,
@@ -1011,10 +1130,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     }));
     if (!results.length) return { transcript: clean, results: bareCards.slice(0, 5) };
     const room = Math.max(0, 12 - results.length);
+    // Append after line-verified evidence: an unverified index guess must
+    // never top songs with real matched lines, however weak.
     results.push(...bareCards.slice(0, room));
-    // Merge by confidence (stable): index evidence at 55 outranks weak
-    // partial-line matches in the low 50s, but never line-verified highs.
-    results.sort((a, b) => b.confidence - a.confidence);
   }
 
   return { transcript: clean, results };

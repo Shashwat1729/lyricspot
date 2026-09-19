@@ -17,12 +17,13 @@ import {
   testGeniusKey,
   testMusixmatchKey,
   testSpotifyKeys,
+  testGoogleKeys,
   type MusicKeys,
 } from "@/lib/musicKeys";
 
 type KeyStatus = { ok: boolean; detail: string } | null;
 
-const EMPTY_KEYS: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "" };
+const EMPTY_KEYS: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "" };
 
 export function SettingsButton() {
   const [open, setOpen] = useState(false);
@@ -233,6 +234,64 @@ export function SettingsButton() {
                 () => runTest("genius", () => testGeniusKey(keys.genius || getMusicKeys().genius)),
                 stored.genius,
               )}
+
+              <div className="mb-3">
+                <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">
+                  Google — web lyric search
+                  {stored.googleKey ? (
+                    <span title="Google credentials are saved on this device" className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+                  ) : null}
+                </span>
+                <div className="flex flex-col gap-2">
+                  <input
+                    id="key-google-key"
+                    type="password"
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    value={keys.googleKey}
+                    onChange={(e) => { setKeys((k) => ({ ...k, googleKey: e.target.value })); setSaved(null); }}
+                    placeholder={stored.googleKey ? "Saved on this device (type to replace)" : "API key (optional)"}
+                    aria-label="Google API key"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-green-500/50 transition-colors"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      id="key-google-cx"
+                      type="password"
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      value={keys.googleCx}
+                      onChange={(e) => { setKeys((k) => ({ ...k, googleCx: e.target.value })); setSaved(null); }}
+                      placeholder="Search engine ID (cx)"
+                      aria-label="Google search engine ID"
+                      className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-green-500/50 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => runTest("google", () => {
+                        const k = getMusicKeys();
+                        return testGoogleKeys(keys.googleKey || k.googleKey, keys.googleCx || k.googleCx);
+                      })}
+                      disabled={testing !== null}
+                      className="shrink-0 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium bg-white/[0.06] hover:bg-white/10 text-white border border-white/[0.08] transition-all disabled:opacity-50"
+                    >
+                      {testing === "google" ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                      Test
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-600 leading-relaxed">
+                  Free 100 searches/day (console.cloud.google.com + programmablesearchengine.google.com). Real web results for lyrics Genius misses.
+                </p>
+                {status["google"] && (
+                  <p className={"mt-1.5 text-xs rounded-lg px-3 py-2 border " + (status["google"]?.ok
+                    ? "text-green-400 bg-green-500/10 border-green-500/20"
+                    : "text-red-400 bg-red-500/10 border-red-500/20")}>
+                    {status["google"]?.ok ? <Check className="w-3 h-3 inline mr-1 -mt-0.5" /> : null}
+                    {status["google"]?.detail}
+                  </p>
+                )}
+              </div>
 
               <div className="mb-3">
                 <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">
