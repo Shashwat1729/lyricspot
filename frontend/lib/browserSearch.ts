@@ -366,22 +366,60 @@ function sharesContentWord(a: Set<string>, b: Set<string>): boolean {
 }
 
 /**
- * Same-recording family: near-identical best lyric lines AND shared
- * title evidence. Groups covers/remixes/live takes whose titles differ
- * ("Hey Jude - Live at ...") while keeping apart different songs that
- * merely quote one line (medleys) or share a generic word like "hum".
- * Both conditions are bounded and song-agnostic.
+ * Same-recording family: near-identical best lyric lines AND title sets
+ * that are equal or in subset relation (live/deluxe editions only ADD
+ * words: {hey,jude} ⊆ {hey,jude,live,...}), plus a distinctive shared
+ * word. Groups genuine versions while keeping apart different songs that
+ * share one lyric line but have neither-equal-nor-subset titles
+ * ("Main Rahon Ya Na Rahon" vs "Main Rahoon Ya Na Rahoon" stay separate
+ * cards). All structural, song-agnostic.
  */
 function sameLyricFamily(lineA: string, lineB: string, wordsA: Set<string>, wordsB: Set<string>): boolean {
   if (!lineA || !lineB || !wordsA.size || !wordsB.size) return false;
   if (tokenScore(lineA, lineB) < 0.82) return false;
-  // Distinctive shared word (length >=4, not a particle) or Jaccard >=0.25
-  let sharedLong = false;
-  let inter = 0;
-  wordsA.forEach(w => { if (wordsB.has(w)) { inter++; if (w.length >= 4) sharedLong = true; } });
-  if (sharedLong) return true;
-  const union = wordsA.size + wordsB.size - inter;
-  return union > 0 && inter / union >= 0.25;
+  let aInB = true, bInA = true, sharedLong = false;
+  wordsA.forEach(w => {
+    if (!wordsB.has(w)) aInB = false;
+    else if (w.length >= 4) sharedLong = true;
+  });
+  wordsB.forEach(w => { if (!wordsA.has(w)) bInA = false; });
+  if (!((aInB && bInA) || aInB || bInA)) return false;
+  return sharedLong;
+}
+
+/**
+ * Spotify's own verdict: search the raw transcript on Spotify (full
+ * web-scale music index + typo tolerance) and take its top track. A
+ * candidate matching that verdict (normalized title equal, artist
+ * overlapping) carries independent agreement evidence. Keys required,
+ * fail-soft, one extra call.
+ */
+async function spotifyTranscriptTop(transcript: string): Promise<{ title: string; artist: string } | null> {
+  const keys = getMusicKeys();
+  if (!keys.spotifyId || !keys.spotifySecret) return null;
+  try {
+    const token = await spotifyAppToken(keys.spotifyId, keys.spotifySecret);
+    if (!token) return null;
+    const r = await fetch("https://api.spotify.com/v1/search?q=" + encodeURIComponent(transcript) + "&type=track&limit=1", {
+      headers: { Authorization: "Bearer " + token },
+      signal: timeoutSignal(5000),
+    });
+    if (!r.ok) return null;
+    const j: any = await r.json().catch(() => null);
+    const t = j?.tracks?.items?.[0];
+    if (!t) return null;
+    return { title: t.name || "", artist: ((t.artists || []) as any[]).map(a => a.name).join(", ") };
+  } catch {
+    return null;
+  }
+}
+
+function matchesSpotifyTop(item: any, top: { title: string; artist: string } | null): boolean {
+  if (!top || !top.title) return false;
+  if (normalizeTitle(item.trackName || "") !== normalizeTitle(top.title)) return false;
+  const ca = canonicalArtist(item.artistName || "");
+  const ta = canonicalArtist(top.artist || "");
+  return !!ca && !!ta && (ca === ta || ca.includes(ta) || ta.includes(ca));
 }
 
 /** A same-song alternate version attached to a result. */
@@ -531,6 +569,8 @@ async function rerankByPopularity(
     const sum = wLyric + wTitle;
     wLyric /= sum; wTitle /= sum; wPop = 0;
   }
+  // Spotify's independent verdict runs alongside popularity lookups.
+  const spotTopPromise = spotifyTranscriptTop(transcript);
   // Rule 5 — lyric-tie cluster: members within 0.05 of the max lyric
   // score. Inside the cluster, popularity judges only when its own spread
   // is decisive; otherwise it abstains and retrieval rank decides.
@@ -545,17 +585,23 @@ async function rerankByPopularity(
   const clusterAllSpotify = clusterMembers.length > 1 && clusterMembers.every(c => c.popSource === 'spotify');
   const popDecisive = usePop && clusterAllSpotify && clusterSpread >= 0.15;
 
+  const spotTop = await spotTopPromise;
   for (const c of withPop) {
     const rank = typeof c.item._retrievalRank === "number" ? c.item._retrievalRank : 8;
     let wL = wLyric, wP = wPop;
     let retrievalBonus = 0;
+    let spotBonus = 0;
     if (inCluster(c)) {
       // Keep weights summing to 1: whatever pop gains, lyric yields.
       wP = popDecisive ? Math.max(wPop, 0.30) : Math.min(wPop, 0.05);
       wL = wLyric + (wPop - wP);
       retrievalBonus = 0.05 * (1 - Math.min(rank, 8) / 8);
+      // Spotify's own top hit for this transcript agreeing with the
+      // candidate (strict title+artist match) is independent evidence —
+      // bounded, tie-only, never outweighing real lyric gaps.
+      if (matchesSpotifyTop(c.item, spotTop)) spotBonus = 0.06;
     }
-    c.final = wL * c.score + wP * c.pop + wTitle * c.titleBonus + retrievalBonus;
+    c.final = wL * c.score + wP * c.pop + wTitle * c.titleBonus + retrievalBonus + spotBonus;
     // Derivative recordings (karaoke/tribute/compilations) copy lyrics
     // verbatim, so lyric evidence alone can't demote them — yet they must
     // never outrank a credible artist's own recording. Mirrors backend.
