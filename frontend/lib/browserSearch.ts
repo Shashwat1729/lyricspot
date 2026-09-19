@@ -154,10 +154,25 @@ async function geniusLyricCandidates(transcript: string): Promise<{ title: strin
 }
 
 /**
+ * Count verifiable lyric lines (synced parsed, else plain non-empty).
+ * Single-line "lyrics" are almost always instrumental markers or
+ * provider errors — never verifiable evidence.
+ */
+export function lyricLineCount(item: any): number {
+  const synced: string = (item && item.syncedLyrics) || "";
+  if (synced) return parseSynced(synced).length;
+  const plain: string = (item && item.plainLyrics) || "";
+  if (!plain) return 0;
+  return plain.split("\n").map((t: string) => t.trim()).filter(Boolean).length;
+}
+
+/**
  * Lyric entries for a known (title, artist): LRCLIB structured search
  * first (synced + plain), falling back to lyrics.ovh plain text when
- * LRCLIB has nothing. Two independent lyric-text sources, same shape —
- * plain-only entries get synthetic timestamps downstream (flagged
+ * LRCLIB has nothing usable. Skips degenerate single-line entries even
+ * when better copies exist further down the provider list — a 1-line
+ * stub both fails verification AND blocks better entries via dedupe.
+ * Plain-only entries get synthetic timestamps downstream (flagged
  * estimated), exactly like LRCLIB plain entries.
  */
 async function fetchLyricEntries(title: string, artist: string): Promise<any[]> {
@@ -167,7 +182,10 @@ async function fetchLyricEntries(title: string, artist: string): Promise<any[]> 
     const r = await fetch(url, { signal: timeoutSignal(5000) });
     if (r.ok) {
       const d: any = await r.json();
-      if (Array.isArray(d) && d.length) return d.slice(0, 2);
+      if (Array.isArray(d) && d.length) {
+        const usable = d.filter((e: any) => lyricLineCount(e) >= 2).slice(0, 2);
+        if (usable.length) return usable;
+      }
     }
   } catch {
     // fall through to lyrics.ovh
@@ -994,7 +1012,9 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
         const key = trackKeyOf(e.trackName || "", e.artistName || "");
         const at = data.findIndex(d => trackKeyOf(d.trackName || "", d.artistName || "") === key);
         if (at >= 0) {
-          if (!data[at].syncedLyrics && !data[at].plainLyrics) {
+          // Replace lyric-less OR degenerate stubs (single-line provider
+          // errors block better copies via dedupe) with verifiable lyrics.
+          if (lyricLineCount(data[at]) < 2) {
             if (data[at]._itunesArt && !e._itunesArt) e._itunesArt = data[at]._itunesArt;
             data[at] = e;
             added = true;
