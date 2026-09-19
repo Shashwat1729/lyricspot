@@ -920,10 +920,22 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   );
   const data: any[] = [];
   const seenTracks = new Set<string>();
+  const trackKeyOf = (t: string, a: string) => ((t || "").toLowerCase()) + "|" + canonicalArtist(a || "");
   const pushList = (list: any[]) => {
     for (const item of list) {
-      const key = ((item.trackName || "").toLowerCase()) + "|" + canonicalArtist(item.artistName || "");
-      if (!seenTracks.has(key) && data.length < 40) { data.push(item); seenTracks.add(key); }
+      const key = trackKeyOf(item.trackName || "", item.artistName || "");
+      if (seenTracks.has(key)) {
+        // Upgrade path: a verifiable copy replaces a degenerate stub
+        // (single-line provider error) under the same key — whichever
+        // source arrives first must not block better lyrics.
+        const at = data.findIndex(d => trackKeyOf(d.trackName || "", d.artistName || "") === key);
+        if (at >= 0 && lyricLineCount(data[at]) < 2 && lyricLineCount(item) >= 2) {
+          if (data[at]._itunesArt && !item._itunesArt) item._itunesArt = data[at]._itunesArt;
+          data[at] = item;
+        }
+        continue;
+      }
+      if (data.length < 44) { data.push(item); seenTracks.add(key); }
     }
   };
   for (const entries of musixEntries) pushList(entries);
@@ -983,7 +995,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     const hasLyricsInPool = (t: string, a: string) => {
       const key = (t || "").toLowerCase() + "|" + canonicalArtist(a || "");
       return data.some(d => ((d.trackName || "").toLowerCase()) + "|" + canonicalArtist(d.artistName || "") === key
-        && (d.syncedLyrics || d.plainLyrics));
+        && lyricLineCount(d) >= 2);
     };
     const metaSeen = new Set<string>();
     const meta: { title: string; artist: string; prior: number }[] = [];
@@ -1004,7 +1016,6 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
         for (const e of entries) e._deep = true;
         return entries;
       }));
-      const trackKeyOf = (t: string, a: string) => ((t || "").toLowerCase()) + "|" + canonicalArtist(a || "");
       let added = false;
       const flatResolved: any[] = [];
       for (const entries of resolved) for (const e of entries) flatResolved.push(e);
