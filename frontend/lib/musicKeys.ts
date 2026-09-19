@@ -29,11 +29,15 @@ export interface MusicKeys {
   spotifySecret: string;
   googleKey: string;
   googleCx: string;
+  geminiKey: string;
 }
 
 const STORAGE_KEY = "lyricspot.keys.v1";
 
-const EMPTY: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "" };
+const EMPTY: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "", geminiKey: "" };
+
+/** Gemini model for query understanding (update if Google retires it). */
+export const GEMINI_MODEL = "gemini-2.0-flash";
 
 function timeoutSignal(ms: number): AbortSignal {
   if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
@@ -54,7 +58,7 @@ function envDefaults(): MusicKeys {
   // time. Dynamic member access (env[name]) is NOT inlined and always reads
   // empty in the browser.
   if (typeof process === "undefined" || !process.env) {
-    return { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "" };
+    return { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "", geminiKey: "" };
   }
   const read = (v: string | undefined) => (v || "").trim();
   return {
@@ -64,6 +68,7 @@ function envDefaults(): MusicKeys {
     spotifySecret: read(process.env.NEXT_PUBLIC_SPOTIFY_SECRET),
     googleKey: read(process.env.NEXT_PUBLIC_GOOGLE_KEY),
     googleCx: read(process.env.NEXT_PUBLIC_GOOGLE_CX),
+    geminiKey: read(process.env.NEXT_PUBLIC_GEMINI_KEY),
   };
 }
 
@@ -98,6 +103,7 @@ function readStored(): MusicKeys | null {
       spotifySecret: (parsed.spotifySecret || "").trim(),
       googleKey: (parsed.googleKey || "").trim(),
       googleCx: (parsed.googleCx || "").trim(),
+      geminiKey: (parsed.geminiKey || "").trim(),
     };
   } catch {
     return null;
@@ -115,6 +121,7 @@ export function getMusicKeys(): MusicKeys {
     spotifySecret: stored.spotifySecret || fallback.spotifySecret,
     googleKey: stored.googleKey || fallback.googleKey,
     googleCx: stored.googleCx || fallback.googleCx,
+    geminiKey: stored.geminiKey || fallback.geminiKey,
   };
 }
 
@@ -130,6 +137,7 @@ export function setMusicKeys(keys: MusicKeys): boolean {
     spotifySecret: (keys.spotifySecret || "").trim(),
     googleKey: (keys.googleKey || "").trim(),
     googleCx: (keys.googleCx || "").trim(),
+      geminiKey: (keys.geminiKey || "").trim(),
   };
   memoryCache = { ...clean };
   if (typeof window === "undefined") return false;
@@ -142,7 +150,8 @@ export function setMusicKeys(keys: MusicKeys): boolean {
       && check.spotifyId === clean.spotifyId
       && check.spotifySecret === clean.spotifySecret
       && check.googleKey === clean.googleKey
-      && check.googleCx === clean.googleCx;
+      && check.googleCx === clean.googleCx
+      && check.geminiKey === clean.geminiKey;
   } catch {
     return false;
   }
@@ -159,7 +168,35 @@ export function clearMusicKeys(): void {
 }
 
 export function hasAnyKey(keys: MusicKeys): boolean {
-  return !!(keys.genius || keys.musixmatch || (keys.spotifyId && keys.spotifySecret) || (keys.googleKey && keys.googleCx));
+  return !!(keys.genius || keys.musixmatch || (keys.spotifyId && keys.spotifySecret) || (keys.googleKey && keys.googleCx) || keys.geminiKey);
+}
+
+/**
+ * Test a Gemini key with a 2-word probe (same generateContent call shape
+ * the engine uses). Burns one tiny request.
+ */
+export async function testGeminiKey(key: string): Promise<{ ok: boolean; detail: string }> {
+  if (!key.trim()) {
+    return { ok: false, detail: "Paste your key first: aistudio.google.com/apikey → Create API key." };
+  }
+  try {
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL + ":generateContent?key=" + encodeURIComponent(key.trim()), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: "Reply with exactly: OK" }] }] }),
+      signal: timeoutSignal(15000),
+    });
+    if (r.status === 400 || r.status === 403) {
+      const j: any = await r.json().catch(() => null);
+      const msg = j?.error?.message || "invalid key";
+      return { ok: false, detail: "Gemini rejected the key (" + msg + ")." };
+    }
+    if (r.status === 429) return { ok: false, detail: "Gemini quota spent — retry later." };
+    if (!r.ok) return { ok: false, detail: "Gemini request failed (HTTP " + r.status + ")." };
+    return { ok: true, detail: "Gemini key works." };
+  } catch {
+    return { ok: false, detail: "Cannot reach generativelanguage.googleapis.com — check connection/ad-blocker." };
+  }
 }
 
 /** Test a Musixmatch key with a tiny lyric search (same call the engine makes). */

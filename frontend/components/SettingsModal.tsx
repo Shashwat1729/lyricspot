@@ -18,12 +18,13 @@ import {
   testMusixmatchKey,
   testSpotifyKeys,
   testGoogleKeys,
+  testGeminiKey,
   type MusicKeys,
 } from "@/lib/musicKeys";
 
 type KeyStatus = { ok: boolean; detail: string } | null;
 
-const EMPTY_KEYS: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "" };
+const EMPTY_KEYS: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "", geminiKey: "" };
 
 export function SettingsButton() {
   const [open, setOpen] = useState(false);
@@ -292,6 +293,16 @@ export function SettingsButton() {
                   </p>
                 )}
               </div>
+
+              {renderKeyRow(
+                "gemini",
+                "Google AI — query understanding",
+                "Free at aistudio.google.com/apikey. Reforms misspelled/romanized lyrics into searchable variants. Never names songs.",
+                keys.geminiKey,
+                (v) => setKeys((k) => ({ ...k, geminiKey: v })),
+                () => runTest("gemini", () => testGeminiKey(keys.geminiKey || getMusicKeys().geminiKey)),
+                stored.geminiKey,
+              )}
 
               <div className="mb-3">
                 <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">

@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const tmp = require('os').tmpdir() + '/bsverify';
-const src = fs.readFileSync(require('path').join(__dirname, 'lib', 'browserSearch.ts'), 'utf8');
+const tmp = 'C:/Users/shash/AppData/Local/Temp/opencode/bsverify';
+const src = fs.readFileSync('D:/personal/projects/Music_cont/frontend/lib/browserSearch.ts', 'utf8');
 
 function extractFn(name) {
   const start = src.indexOf('function ' + name + '(');
@@ -84,7 +84,7 @@ function extractConst(name) {
 
 const names = ['isDevanagari', 'romanizeDevanagari', 'relaxedVowelEq', 'editSimilarity',
   'tokenScore', 'parseSynced', 'isBoilerplate', 'bestLine',
-  'stripVersion', 'normalizeTitle', 'titleContentWords', 'sharesContentWord', 'sameLyricFamily', 'parseWebResult', 'cleanupName', 'spellingVariants', 'lyricLineCount'];
+  'stripVersion', 'normalizeTitle', 'titleContentWords', 'sharesContentWord', 'sameLyricFamily', 'parseWebResult', 'cleanupName', 'spellingVariants', 'lyricLineCount', 'parseGeminiVariants'];
 const ts = extractConst('STOP') + '\n\n' + names.map(extractFn).join('\n\n')
   + '\nexport { ' + names.join(', ') + ' };\n';
 fs.mkdirSync(tmp, { recursive: true });
@@ -178,6 +178,10 @@ gte(lib.editSimilarity('gali', lib.romanizeDevanagari(D.gali)), 0.72, 'fuzzy gal
   eq(lib.lyricLineCount({ syncedLyrics: '[00:01.00] a\n[00:05.00] b' }), 2, 'real synced counts');
   eq(lib.lyricLineCount({ plainLyrics: 'hello' }), 1, 'plain 1-line counts');
   eq(lib.lyricLineCount({}), 0, 'empty counts 0');
+  const gv = lib.parseGeminiVariants('prefix {"variants": ["rahoon ya na rahoon", "rehoon", 42, "rahoon ya na rahoon", "x"]} suffix');
+  eq(JSON.stringify(gv), JSON.stringify(['rahoon ya na rahoon', 'rehoon', 'x']), 'gemini variants parsed');
+  eq(JSON.stringify(lib.parseGeminiVariants('The song is Hey Jude by The Beatles')), JSON.stringify([]), 'gemini prose rejected');
+  eq(JSON.stringify(lib.parseGeminiVariants('not json at all')), JSON.stringify([]), 'gemini garbage rejected');
   gte(lib.tokenScore('main rahoon ya na rahoon', 'mein rahon ya na rahon'), 0.70, 'spelling-variant fuzzy');
   gte(lib.tokenScore('remember the night', 'remember the light'), 0.9, 'mishearing tolerance');
   eq(lib.tokenScore('take a sad song', 'take a sad light') < 0.8, true, 'short-word strictness');

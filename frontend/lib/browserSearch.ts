@@ -10,7 +10,7 @@
 // official API, and Spotify credentials upgrade the popularity signal.
 // Everything works keyless too (LRCLIB + iTunes + keyless Genius discovery).
 
-import { getMusicKeys, spotifyAppToken } from "./musicKeys";
+import { getMusicKeys, spotifyAppToken, GEMINI_MODEL } from "./musicKeys";
 
 export interface BrowserCandidate {
   song: string;
@@ -73,6 +73,63 @@ export function spellingVariants(word: string): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Parse model output into query variants. Strict: JSON object with a
+ * "variants" string array, each ≤80 chars, max 3 kept. Anything else
+ * (prose, song names-as-answers, markdown) is dropped — variants only
+ * ever become extra retrieval queries; lyric scoring still decides.
+ */
+export function parseGeminiVariants(text: string): string[] {
+  try {
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const raw = (fenced ? fenced[1] : text).trim();
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start < 0 || end <= start) return [];
+    const j: any = JSON.parse(raw.slice(start, end + 1));
+    const list: any[] = Array.isArray(j.variants) ? j.variants : [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const v of list) {
+      if (typeof v !== "string") continue;
+      const s = v.replace(/\s+/g, " ").trim();
+      if (!s || s.length > 80 || seen.has(s.toLowerCase())) continue;
+      seen.add(s.toLowerCase());
+      out.push(s);
+      if (out.length >= 3) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Query understanding via Gemini (visitor's free AI Studio key): asks for
+ * alternate spellings/transliterations of the SAME lyric words — never
+ * song names. Feeds retrieval breadth for romanized/misspelled queries
+ * beyond regex vowel toggles. Fail-soft, one bounded call.
+ */
+async function geminiQueryVariants(transcript: string): Promise<string[]> {
+  const key = getMusicKeys().geminiKey;
+  if (!key || transcript.split(/\s+/).length < 2) return [];
+  try {
+    const prompt = "These words are song lyrics typed from memory, possibly misspelled or romanized Hindi. Reply ONLY with JSON like {\"variants\": [\"...\"]}: up to 3 alternate spellings or transliterations of the SAME words (fix likely typos, give Devanagari-romanization variants). Never name any song, artist, or movie; never explain. Lyrics: " + transcript.slice(0, 200);
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL + ":generateContent?key=" + encodeURIComponent(key), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 120, temperature: 0 } }),
+      signal: timeoutSignal(9000),
+    });
+    if (!r.ok) return [];
+    const j: any = await r.json().catch(() => null);
+    const text = (((j?.candidates || [])[0]?.content?.parts || []).map((p: any) => p.text || "").join(" "));
+    return parseGeminiVariants(text);
+  } catch {
+    return [];
+  }
 }
 
 /** Canonical artist key: dedupes "The Beatles" / "Beatles, The" / comma/ampersand variants. */
@@ -882,15 +939,27 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       }
     }
   }
-  // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
-  // title-based and often finds the famous original when LRCLIB returns
-  // only covers for the same lyric phrase.
-  const lrclibQueries = [...deduped, ...variantQueries].slice(0, 7);
-  const itunesQueries = [...deduped.slice(0, 2), ...variantQueries].slice(0, 4);
-  const [geniusPairs, musixPairs, webPairs, lrclibSettled, itunesSettled, ovhSettled] = await Promise.all([
+  // Phase 1: lyric-index discovery + model query understanding in
+  // parallel (all fail-soft; keyless extras resolve instantly).
+  const [geniusPairs, musixPairs, webPairs, geminiVariants] = await Promise.all([
     geniusLyricCandidates(clean),
     musixmatchLyricCandidates(clean),
     webSearchCandidates(clean),
+    geminiQueryVariants(clean),
+  ]);
+  // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
+  // title-based and often finds the famous original when LRCLIB returns
+  // only covers for the same lyric phrase.
+  const seenQ = new Set(deduped.map(q => q.toLowerCase()));
+  for (const v of [...variantQueries, ...geminiVariants]) {
+    if (v && !seenQ.has(v.toLowerCase())) { seenQ.add(v.toLowerCase()); deduped.push(v); }
+    if (deduped.length >= 9) break;
+  }
+  const lrclibQueries = deduped.slice(0, 7);
+  const itunesQueries = [deduped[0], ...variantQueries, ...geminiVariants]
+    .filter((q, i, arr) => q && arr.indexOf(q) === i)
+    .slice(0, 4);
+  const [lrclibSettled, itunesSettled, ovhSettled] = await Promise.all([
     Promise.all(lrclibQueries.map(async (q) => {
       try {
         const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
