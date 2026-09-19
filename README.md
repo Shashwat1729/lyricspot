@@ -18,7 +18,7 @@ Ever had a song stuck in your head but only remember one line? LyricSpot listens
 - **Voice Input** - Sing into your mic (3s min, 5-10s recommended, 15s max) — uses Whisper when a backend is connected, falls back to in-browser speech recognition on Pages
 - **Text Input** - Type whatever lyrics you remember — live lyric search with browser fallback
 - **Local AI** - OpenAI Whisper when a backend is running; browser Speech API as fallback on Pages
-- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch + Deezer + MusicBrainz (backend); Genius + Musixmatch + LRCLIB + iTunes (browser, keys optional)
+- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch + Deezer + MusicBrainz (backend); Genius + Musixmatch + Google + LRCLIB + lyrics.ovh + iTunes (browser, keys optional)
 - **Popularity-Aware Ranking** - Famous originals outrank obscure covers with identical lyrics
 - **Precise Timestamps** - Finds the exact second your lyric appears (including repeated choruses)
 - **Spotify Deep Link** - One click opens Spotify at the right timestamp
@@ -83,6 +83,7 @@ The static site works with zero keys. To improve it, open **API keys** (top righ
 |-----|-----------------|------------------------|
 | Musixmatch | Genuine lyrics → song search (same provider the backend uses) | developer.musixmatch.com (free tier: 2000 calls/day) |
 | Genius token | Upgrades lyric discovery to the official API | genius.com/api-clients → Generate Access Token |
+| Google key + CX | Web-scale lyric search for songs Genius misses (100 free/day) | console.cloud.google.com (Custom Search API) + programmablesearchengine.google.com (entire web) |
 | Spotify ID + Secret | Popularity ranking (famous originals outrank covers) + artwork | developer.spotify.com/dashboard |
 
 Each row has a **Test** button so you can verify a key before saving. No paid APIs are used anywhere in this project.
@@ -96,7 +97,7 @@ If you run your own backend elsewhere, set it under **API keys → Advanced** (t
 Input (voice or typed)
   → Retrieval (broad, never early-stop)
       Backend: YouTube + Genius (+token) + iTunes + Musixmatch + Deezer + MusicBrainz in parallel, merged by provider agreement
-      Browser: Genius lyric discovery (+token via access_token=) + Musixmatch q_lyrics + LRCLIB q + iTunes + lyrics.ovh suggest, deduped, pool ≤40
+      Browser: Genius lyric discovery (+token via access_token=) + Musixmatch q_lyrics + Google web search (+key/cx) + LRCLIB q + iTunes + lyrics.ovh suggest, deduped, pool ≤40
   → Lyric enrichment
       LRCLIB structured search → lyrics.ovh plain-text fallback; synced LRC parsed, plain split, boilerplate stripped
       Deep resolve when <5 scored: pull lyrics for metadata-only pool and re-score

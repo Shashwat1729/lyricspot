@@ -45,6 +45,36 @@ const STOP = new Set(["a","an","the","is","are","was","were","be","been","being"
   // Hindi/Urdu particles (se = by/from, ne = ergative, ka/ki/ke = of, ko = to, ...).
   "se","ne","ka","ki","ke","ko","mein","me","aur","hai","hain","na","jo","bhi","par","ye","yeh","woh","vo","toh","kya","kaise","nahi","nahin"]);
 
+/**
+ * Spelling variants for romanized-lyric retrieval (rahon/rahoon, ...).
+ * Servers match metadata words exactly, but romanized Hindi spells long
+ * vowels both ways (o/oo, a/aa, i/ee, u/uu). Toggling one vowel at a time
+ * on the longest content word produces the alternate spellings a title
+ * index may use. Capped at 2: extra variants only cost fail-soft fetches,
+ * and scoring (never retrieval) decides. Purely linguistic, song-agnostic.
+ */
+export function spellingVariants(word: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([word.toLowerCase()]);
+  const lower = word.toLowerCase();
+  if (lower.length < 4) return out;
+  for (let i = 0; i < lower.length && out.length < 2; i++) {
+    const c = lower[i];
+    if (!"aeiou".includes(c)) continue;
+    if (lower[i + 1] === c) {
+      // doubled -> single ("rahoon" -> "rahon")
+      const v = lower.slice(0, i) + lower.slice(i + 1);
+      if (!seen.has(v)) { seen.add(v); out.push(v); }
+      i++; // skip the pair
+    } else if (i === 0 || lower[i - 1] !== c) {
+      // single -> doubled ("rahon" -> "rahoon")
+      const v = lower.slice(0, i + 1) + c + lower.slice(i + 1);
+      if (!seen.has(v)) { seen.add(v); out.push(v); }
+    }
+  }
+  return out;
+}
+
 /** Canonical artist key: dedupes "The Beatles" / "Beatles, The" / comma/ampersand variants. */
 function canonicalArtist(name: string): string {
   let n = (name || "").toLowerCase().replace(/\s*-\s*topic$/i, "").replace(/\s*vevo$/i, "").trim();
@@ -771,14 +801,33 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   queries.push(allWords.slice(0, 3).join(" "));
   queries.push(allWords.slice(0, 2).join(" "));
   const deduped = Array.from(new Set(queries.filter(Boolean)));
+  // Spelling-variant queries: romanized titles use long vowels both ways,
+  // so also ask for the alternate spellings of the longest content word
+  // ("rahon ya na rahon" -> "rahoon ya na rahoon" finds the official
+  // title). Bounded to 2 variants of the top query; scoring decides.
+  const variantQueries: string[] = [];
+  {
+    const topWords = (deduped[0] || "").split(/\s+/).filter(w => w.length >= 4 && !STOP.has(w.toLowerCase()));
+    topWords.sort((a, b) => b.length - a.length);
+    const seenQ = new Set(deduped.map(q => q.toLowerCase()));
+    if (topWords.length) {
+      for (const v of spellingVariants(topWords[0])) {
+        const vq = deduped[0].split(/\s+/).map(w => w.toLowerCase() === topWords[0].toLowerCase() ? v : w).join(" ");
+        if (vq && !seenQ.has(vq.toLowerCase())) { seenQ.add(vq.toLowerCase()); variantQueries.push(vq); }
+        if (variantQueries.length >= 2) break;
+      }
+    }
+  }
   // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
   // title-based and often finds the famous original when LRCLIB returns
   // only covers for the same lyric phrase.
+  const lrclibQueries = [...deduped, ...variantQueries].slice(0, 7);
+  const itunesQueries = [...deduped.slice(0, 2), ...variantQueries].slice(0, 4);
   const [geniusPairs, musixPairs, webPairs, lrclibSettled, itunesSettled, ovhSettled] = await Promise.all([
     geniusLyricCandidates(clean),
     musixmatchLyricCandidates(clean),
     webSearchCandidates(clean),
-    Promise.all(deduped.map(async (q) => {
+    Promise.all(lrclibQueries.map(async (q) => {
       try {
         const r = await fetch("https://lrclib.net/api/search?q=" + encodeURIComponent(q), { signal: timeoutSignal(6000) });
         if (!r.ok) return [];
@@ -788,8 +837,8 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
         return [];
       }
     })),
-    // iTunes: only 2 most focused queries to stay well under rate limits.
-    Promise.all(deduped.slice(0, 2).map(async (q) => {
+    // iTunes: focused queries + spelling variants, still a small burst.
+    Promise.all(itunesQueries.map(async (q) => {
       try {
         const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(q) + "&entity=song&limit=4", { signal: timeoutSignal(5000) });
         if (!r.ok) return [];
@@ -902,12 +951,12 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   };
   scorePool();
   // Deep resolve: when line-verified evidence is thin — few scored OR
-  // best score weak (junk-filled pool, e.g. title-traps outscoring the
-  // true song whose lyrics live elsewhere) — pull lyrics for the
+  // best score weak (junk-filled pool, e.g. a title-trap at 0.69 hiding
+  // the true song whose lyrics live elsewhere) — pull lyrics for the
   // metadata-only pool (iTunes/suggest titles) and re-score. Bounded
   // (8 pairs), parallel, fail-soft.
   const bestScored = scored.length ? Math.max(...scored.map(s => s.score)) : 0;
-  if (scored.length < 5 || bestScored < 0.60) {
+  if (scored.length < 5 || bestScored < 0.75) {
     onProgress?.("searching", "Digging deeper...");
     const metaSeen = new Set<string>();
     const meta: { title: string; artist: string }[] = [];

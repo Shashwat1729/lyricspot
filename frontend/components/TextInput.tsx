@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Loader2, X, Wand2 } from 'lucide-react';
-import { identifyLyrics, ApiResponse } from '@/lib/api';
+import { identifyLyrics, shouldAttemptBackend, ApiResponse } from '@/lib/api';
 import { browserIdentify } from '@/lib/browserSearch';
 
 interface TextInputProps {
@@ -45,7 +45,11 @@ export default function TextInput({ onResult, onLoadingChange, onError }: TextIn
     try {
       const timeoutId = setTimeout(() => controller.abort(), 4000);
       let data: any = null;
-      try { data = await identifyLyrics(text, controller.signal); } catch {}
+      // On public deploys with no backend configured, skip the doomed
+      // localhost call entirely and go straight to browser search.
+      if (shouldAttemptBackend()) {
+        try { data = await identifyLyrics(text, controller.signal); } catch {}
+      }
       clearTimeout(timeoutId);
 
       if (!data || !data.success) {

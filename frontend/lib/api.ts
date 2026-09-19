@@ -77,6 +77,20 @@ function isLocalHost(urlOrHost: string): boolean {
   );
 }
 
+/**
+ * Whether a backend call is even worth attempting. On a public deploy with
+ * no custom server configured, the default localhost backend can never be
+ * there — callers should go straight to browser search instead of burning
+ * a doomed request (and logging a console error) first.
+ */
+export function shouldAttemptBackend(): boolean {
+  if (typeof window === "undefined") return true;
+  if (isCustomApiBase()) return true; // explicit user config: always honor
+  const base = getApiBase();
+  if (!isLocalHost(base)) return true; // baked remote host: try it
+  return isLocalHost(window.location.hostname); // local page: local backend may exist
+}
+
 /** Quick backend reachability probe for the Settings "Test" button. */
 export async function checkBackendHealth(timeoutMs = 5000): Promise<{ ok: boolean; detail: string }> {
   const base = getApiBase();
