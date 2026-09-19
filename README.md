@@ -121,7 +121,7 @@ No song, language, or query is hardcoded. Every case in `backend/tests/eval_data
 
 ## Evaluation
 
-`pytest backend/tests/test_comprehensive_eval.py` measures Top-1/Top-3/Top-5, MRR/Recall@5 on the dataset; `pytest backend/tests/test_ranking.py` asserts lyric-content-first ordering (e.g. Hey Jude lyric vs title trap) remains green. Frontend has a 36-assertion harness (`verify-browsersearch.cjs`) covering romanization, scoring, version stripping, and cover grouping.
+`pytest backend/tests/test_comprehensive_eval.py` measures Top-1/Top-3/Top-5, MRR/Recall@5 on the dataset; `pytest backend/tests/test_ranking.py` asserts lyric-content-first ordering (e.g. Hey Jude lyric vs title trap) remains green. Frontend has a 54-assertion harness (`frontend/verify-browsersearch.cjs`, run with `node frontend/verify-browsersearch.cjs`) covering romanization, scoring, spelling variants, version stripping, cover grouping, and web-result parsing.
 
 ## Screenshots
 
