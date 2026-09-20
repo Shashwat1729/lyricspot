@@ -36,8 +36,12 @@ const STORAGE_KEY = "lyricspot.keys.v1";
 
 const EMPTY: MusicKeys = { genius: "", musixmatch: "", spotifyId: "", spotifySecret: "", googleKey: "", googleCx: "", geminiKey: "" };
 
-/** Gemini model for query understanding (update if Google retires it). */
-export const GEMINI_MODEL = "gemini-2.0-flash";
+/**
+ * Gemini model for query understanding. Rolling alias (never 404s on
+ * retirement); verified against the live models list. Do NOT pin a dated
+ * version (gemini-2.0-flash was retired and broke the call).
+ */
+export const GEMINI_MODEL = "gemini-flash-latest";
 
 function timeoutSignal(ms: number): AbortSignal {
   if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
