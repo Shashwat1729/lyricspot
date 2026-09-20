@@ -14,6 +14,8 @@ import {
   setMusicKeys,
   clearMusicKeys,
   storageWritable,
+  getAiAssist,
+  setAiAssist,
   testGeniusKey,
   testMusixmatchKey,
   testSpotifyKeys,
@@ -35,6 +37,7 @@ export function SettingsButton() {
   const [status, setStatus] = useState<Record<string, KeyStatus>>({});
   const [testing, setTesting] = useState<string | null>(null);
   const [saved, setSaved] = useState<"ok" | "fail" | null>(null);
+  const [aiAssist, setAiAssistState] = useState<boolean>(() => getAiAssist());
   // Advanced: self-hosted backend URL (unchanged legacy behavior).
   const [url, setUrl] = useState(() => getApiBaseOverride() ?? "");
   const [backendStatus, setBackendStatus] = useState<KeyStatus>(null);
@@ -44,6 +47,7 @@ export function SettingsButton() {
   const openModal = () => {
     const current = getMusicKeys();
     setKeys(current);
+    setAiAssistState(getAiAssist());
     setStored(current);
     setStorageOk(storageWritable());
     setStatus({});
@@ -303,6 +307,27 @@ export function SettingsButton() {
                 () => runTest("gemini", () => testGeminiKey(keys.geminiKey || getMusicKeys().geminiKey)),
                 stored.geminiKey,
               )}
+
+              <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5">
+                <div>
+                  <p className="text-sm text-white font-medium">AI query help</p>
+                  <p className="text-[11px] text-gray-500 leading-relaxed">
+                    {aiAssist
+                      ? "ON — Gemini reformulates spellings when a key is saved."
+                      : "OFF — pure regex/fuzzy path. Toggle to prove it works without AI."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={aiAssist}
+                  aria-label="Toggle AI query help"
+                  onClick={() => { const next = !aiAssist; setAiAssist(next); setAiAssistState(next); }}
+                  className={"shrink-0 w-11 h-6 rounded-full transition-colors relative " + (aiAssist ? "bg-green-500" : "bg-white/10")}
+                >
+                  <span className={"absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all " + (aiAssist ? "left-[22px]" : "left-0.5")} />
+                </button>
+              </div>
 
               <div className="mb-3">
                 <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-gray-500 mb-1.5">

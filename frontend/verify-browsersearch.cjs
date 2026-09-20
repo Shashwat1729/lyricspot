@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const tmp = 'C:/Users/shash/AppData/Local/Temp/opencode/bsverify';
-const src = fs.readFileSync('D:/personal/projects/Music_cont/frontend/lib/browserSearch.ts', 'utf8');
+const tmp = require('os').tmpdir() + '/bsverify-lyricspot';
+const src = fs.readFileSync(path.join(__dirname, 'lib', 'browserSearch.ts'), 'utf8');
 
 function extractFn(name) {
   const start = src.indexOf('function ' + name + '(');

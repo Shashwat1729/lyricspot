@@ -83,7 +83,7 @@ The static site works with zero keys. To improve it, open **API keys** (top righ
 |-----|-----------------|------------------------|
 | Musixmatch | Genuine lyrics → song search (same provider the backend uses) | developer.musixmatch.com (free tier: 2000 calls/day) |
 | Genius token | Upgrades lyric discovery to the official API | genius.com/api-clients → Generate Access Token |
-| Google key + CX | Web-scale lyric search for songs Genius misses (100 free/day) | console.cloud.google.com (Custom Search API) + programmablesearchengine.google.com (entire web) |
+| Google key + CX | Web-scale lyric search for songs Genius misses (100 free/day; needs BOTH the API key and an "entire web" engine's CX) | console.cloud.google.com (Custom Search API) + programmablesearchengine.google.com |
 | Google AI key | Understands misspelled/romanized queries into searchable variants (never names songs) | aistudio.google.com/apikey (free tier) |
 | Spotify ID + Secret | Popularity ranking (famous originals outrank covers) + artwork | developer.spotify.com/dashboard |
 

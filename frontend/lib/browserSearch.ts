@@ -10,7 +10,7 @@
 // official API, and Spotify credentials upgrade the popularity signal.
 // Everything works keyless too (LRCLIB + iTunes + keyless Genius discovery).
 
-import { getMusicKeys, spotifyAppToken, GEMINI_MODEL } from "./musicKeys";
+import { getMusicKeys, spotifyAppToken, GEMINI_MODEL, getAiAssist } from "./musicKeys";
 
 export interface BrowserCandidate {
   song: string;
@@ -113,6 +113,7 @@ export function parseGeminiVariants(text: string): string[] {
  * beyond regex vowel toggles. Fail-soft, one bounded call.
  */
 async function geminiQueryVariants(transcript: string): Promise<string[]> {
+  if (!getAiAssist()) return []; // user-visible control: pure non-AI path
   const key = getMusicKeys().geminiKey;
   if (!key || transcript.split(/\s+/).length < 2) return [];
   try {

@@ -171,6 +171,32 @@ export function hasAnyKey(keys: MusicKeys): boolean {
   return !!(keys.genius || keys.musixmatch || (keys.spotifyId && keys.spotifySecret) || (keys.googleKey && keys.googleCx) || keys.geminiKey);
 }
 
+const AI_ASSIST_KEY = "lyricspot.aiAssist.v1";
+
+/**
+ * AI query-help master switch. ON (default) uses the saved Gemini key to
+ * reformulate queries; OFF runs the pure regex/fuzzy/transliteration
+ * path so anyone can prove the app works without AI. Stored per-device.
+ */
+export function getAiAssist(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const v = window.localStorage.getItem(AI_ASSIST_KEY);
+    return v === null ? true : v === "1";
+  } catch {
+    return true;
+  }
+}
+
+export function setAiAssist(on: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(AI_ASSIST_KEY, on ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Test a Gemini key with a 2-word probe (same generateContent call shape
  * the engine uses). Burns one tiny request.
