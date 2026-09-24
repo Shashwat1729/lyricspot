@@ -1,5 +1,5 @@
 """
-Lyrics fetching service for ContinueMySong AI.
+Lyrics fetching service for LyricSpot.
 Fetches synced lyrics from multiple sources:
 - LRCLIB (free, no key required)
 - Musixmatch (14M+ songs, 80+ languages)

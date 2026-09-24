@@ -101,3 +101,7 @@ htmlcov/
 
 # QA harnesses (dev-only, never commit)
 qa_*.js
+
+# ===== Frontend test artifacts =====
+frontend/test-results/
+frontend/playwright-report/

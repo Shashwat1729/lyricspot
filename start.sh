@@ -1,66 +1,37 @@
-#!/bin/bash
-# ContinueMySong AI — Start both backend and frontend servers
-# Usage: ./start.sh
+#!/usr/bin/env bash
+# LyricSpot — start backend (http://localhost:8000) and frontend (http://localhost:3000).
+# Usage: ./start.sh            full install (voice needs ffmpeg + Whisper)
+#        ./start.sh --text     text search only (fast install, no torch)
+set -euo pipefail
 
-set -e
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+BACKEND="$ROOT/backend"
+FRONTEND="$ROOT/frontend"
+REQS="requirements.txt"
+[ "${1:-}" = "--text" ] && REQS="requirements-core.txt"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BACKEND_DIR="$SCRIPT_DIR/backend"
-FRONTEND_DIR="$SCRIPT_DIR/frontend"
-
-# Colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-echo -e "${GREEN}🎵 Starting ContinueMySong AI...${NC}"
-
-# Bind to 0.0.0.0 for WSL/Docker accessibility (override with HOST env var)
-export HOST="${HOST:-0.0.0.0}"
-
-# Check if backend venv exists
-if [ ! -d "$BACKEND_DIR/venv" ]; then
-  echo -e "${YELLOW}Creating Python virtual environment...${NC}"
-  python3 -m venv "$BACKEND_DIR/venv"
-  source "$BACKEND_DIR/venv/bin/activate"
-  pip install -r "$BACKEND_DIR/requirements.txt" --quiet
-else
-  source "$BACKEND_DIR/venv/bin/activate"
+if [ ! -d "$BACKEND/venv" ]; then
+  echo "Creating Python virtual environment..."
+  python3 -m venv "$BACKEND/venv"
 fi
-
-# Check if frontend node_modules exist
-if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-  echo -e "${YELLOW}Installing frontend dependencies...${NC}"
-  cd "$FRONTEND_DIR" && npm install
+# shellcheck disable=SC1091
+source "$BACKEND/venv/bin/activate"
+if [ "$REQS" = "requirements.txt" ]; then
+  pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu || true
 fi
+pip install --quiet -r "$BACKEND/$REQS"
+command -v ffmpeg >/dev/null || echo "Note: ffmpeg not found — voice input stays disabled (text search works)."
 
-# Kill any existing processes on ports 8000 and 3000
-kill $(lsof -t -i:8000 2>/dev/null) 2>/dev/null || true
-kill $(lsof -t -i:3000 2>/dev/null) 2>/dev/null || true
-sleep 1
+[ -d "$FRONTEND/node_modules" ] || (cd "$FRONTEND" && npm install)
 
-# Start backend
-echo -e "${GREEN}▶ Starting backend on http://localhost:8000${NC}"
-cd "$BACKEND_DIR"
-source venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 &
+(cd "$BACKEND" && uvicorn main:app --host "${HOST:-127.0.0.1}" --port 8000) &
 BACKEND_PID=$!
-
-# Start frontend
-echo -e "${GREEN}▶ Starting frontend on http://localhost:3000${NC}"
-cd "$FRONTEND_DIR"
-npx next dev --hostname 0.0.0.0 --port 3000 &
+(cd "$FRONTEND" && npx next dev --hostname "${HOST:-127.0.0.1}" --port 3000) &
 FRONTEND_PID=$!
+trap 'echo; echo "Stopping..."; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit 0' INT TERM
 
-echo ""
-echo -e "${GREEN}✅ Both servers starting!${NC}"
-echo -e "   Backend:  http://localhost:8000"
-echo -e "   Frontend: http://localhost:3000"
-echo ""
-echo -e "${YELLOW}Press Ctrl+C to stop both servers${NC}"
-
-# Trap Ctrl+C to kill both
-trap "echo ''; echo 'Stopping servers...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit 0" INT TERM
-
-# Wait for both
+echo
+echo "  Backend:  http://localhost:8000/health"
+echo "  Frontend: http://localhost:3000"
+echo "  Ctrl+C stops both."
 wait

@@ -1,5 +1,5 @@
 """
-Title cleaning utility for ContinueMySong AI.
+Title cleaning utility for LyricSpot.
 Parses and cleans noisy video/song titles into structured song + artist data.
 """
 

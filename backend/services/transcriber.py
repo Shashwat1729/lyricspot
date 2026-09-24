@@ -1,5 +1,5 @@
 """
-Whisper-based audio transcription service for ContinueMySong AI.
+Whisper-based audio transcription service for LyricSpot.
 Transcribes sung lyrics from audio files.
 """
 import logging
@@ -9,8 +9,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 from pathlib import Path
-
-import whisper
+import importlib.util
 
 
 @dataclass
@@ -61,10 +60,33 @@ class TranscriptionService:
             Loaded Whisper model
         """
         if self._model is None:
+            # Imported lazily so the API can run in text-only mode on
+            # machines without torch/whisper installed.
+            import whisper
+
             logging.getLogger(__name__).info(f"Loading Whisper model: {self._model_name}")
             self._model = whisper.load_model(self._model_name)
             logging.getLogger(__name__).info("Whisper model loaded successfully")
         return self._model
+
+    @staticmethod
+    def is_available() -> bool:
+        """True when the whisper package can be imported (voice input enabled)."""
+        import sys
+        if "whisper" in sys.modules:
+            return True
+        try:
+            return importlib.util.find_spec("whisper") is not None
+        except (ImportError, ValueError):
+            return False
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._model is not None
 
     def transcribe(self, wav_path: str) -> str:
         """

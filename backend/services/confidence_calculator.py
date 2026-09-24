@@ -1,5 +1,5 @@
 """
-Multi-layered confidence scoring engine for ContinueMySong AI.
+Multi-layered confidence scoring engine for LyricSpot.
 
 Computes a final confidence score by combining multiple independent signals:
   Layer 1: LYRICS MATCH — How well does the song's lyrics match the user's input?

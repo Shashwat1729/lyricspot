@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -7,51 +7,49 @@ on:
     branches: [main]
 
 jobs:
-  backend-tests:
+  backend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+          cache: pip
+          cache-dependency-path: backend/requirements-core.txt
+      # Tests mock Whisper, so CI installs the text-search core only
+      # (fast, no torch). Voice deps are covered by the Docker image.
       - name: Install dependencies
-        working-directory: backend
-        run: |
-          # openai-whisper ships as sdist with a legacy setup.py that needs
-          # pkg_resources (removed in setuptools>=81); pin the build toolchain
-          # and build without isolation so the pinned setuptools is used.
-          pip install "setuptools<81" wheel
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements-dev.txt --no-build-isolation
+        run: pip install -r requirements-core.txt pytest==7.4.4 httpx==0.25.2 ruff
       - name: Lint (ruff)
-        working-directory: backend
-        run: |
-          pip install ruff
-          ruff check . --select E,F,W --ignore E501
-      - name: Run tests
-        working-directory: backend
-        run: python -m pytest tests/test_core.py tests/test_api.py tests/test_reliability.py tests/test_ranking.py tests/test_comprehensive_eval.py -v
+        run: ruff check . --select E,F,W --ignore E501
+      - name: Tests
+        run: python -m pytest tests/test_core.py tests/test_api.py tests/test_reliability.py tests/test_ranking.py tests/test_comprehensive_eval.py tests/test_pipeline.py tests/test_melody.py -v
 
-  frontend-lint:
+  frontend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install
-        working-directory: frontend
-        run: npm ci
+      - run: npm ci
       - name: Type check
-        working-directory: frontend
-        run: npx tsc --noEmit
-      - name: Frontend behavior harness (54 assertions on shipped scoring code)
-        working-directory: frontend
-        run: node verify-browsersearch.cjs
-      - name: Build
-        working-directory: frontend
+        run: npm run typecheck
+      - name: Scoring harness (shipped browser engine code)
+        run: npm run test:unit
+      - name: Build (static export)
         run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end tests (mocked network)
+        run: npm run test:e2e
+        env:
+          CI: 'true'

@@ -1,5 +1,5 @@
 """
-Multi-strategy song identification service for ContinueMySong AI.
+Multi-strategy song identification service for LyricSpot.
 Identifies songs from transcribed lyrics using multiple sources.
 
 Free sources (no API key required):

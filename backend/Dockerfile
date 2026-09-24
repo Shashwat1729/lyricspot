@@ -8,11 +8,8 @@ WORKDIR /app
 # Install CPU-only torch first for smaller image
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-COPY requirements.txt .
+COPY requirements.txt requirements-core.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Install yt-dlp (primary YouTube search strategy)
-RUN pip install --no-cache-dir yt-dlp
 
 COPY . .
 

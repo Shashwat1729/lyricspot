@@ -1,47 +1,42 @@
 /**
- * API helper functions for ContinueMySong AI frontend.
+ * Backend client for LyricSpot.
+ *
+ * The backend is optional: the static site runs the whole search in the
+ * browser (lib/browserSearch.ts). When a backend is reachable it is used
+ * for Whisper voice transcription and its wider server-side search.
  */
 
-import axios from 'axios';
-
-const API_BASE_OVERRIDE_KEY = 'lyricspot.apiBase';
-const DEFAULT_API_BASE = 'http://localhost:8000';
+const API_BASE_OVERRIDE_KEY = "lyricspot.apiBase";
+const DEFAULT_API_BASE = "http://localhost:8000";
 
 /** Build-time default from env (baked into the static export). */
 function envApiBase(): string {
-  return (process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE).replace(/\/+$/, '');
+  return (process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_BASE).replace(/\/+$/, "");
 }
 
-function sanitizeApiBase(raw: string): string | null {
-  const cleaned = (raw || '').trim().replace(/\/+$/, '');
-  if (!/^https?:\/\/.+/.test(cleaned)) return null;
+export function sanitizeApiBase(raw: string): string | null {
+  const cleaned = (raw || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\/[^\s/]+/.test(cleaned)) return null;
   return cleaned;
 }
 
 /**
  * Effective backend base URL.
- * Priority: Settings override (localStorage) > build-time env > localhost.
- * Read dynamically (not a module const) so the Settings modal takes
- * effect immediately without a rebuild — essential on static hosts.
+ * Priority: saved override (localStorage) > build-time env > localhost.
+ * Read on every call so a change in the Sources panel applies at once.
  */
 export function getApiBase(): string {
-  if (typeof window !== 'undefined') {
-    try {
-      const override = window.localStorage.getItem(API_BASE_OVERRIDE_KEY);
-      if (override) {
-        const cleaned = sanitizeApiBase(override);
-        if (cleaned) return cleaned;
-      }
-    } catch {
-      // localStorage unavailable (private mode) — fall through to env default
-    }
+  const override = getApiBaseOverride();
+  if (override) {
+    const cleaned = sanitizeApiBase(override);
+    if (cleaned) return cleaned;
   }
   return envApiBase();
 }
 
-/** Persist a custom backend URL (or null to reset to default). Returns false if invalid. */
+/** Persist a custom backend URL (null/empty resets). Returns false if invalid. */
 export function setApiBaseOverride(url: string | null): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === "undefined") return false;
   try {
     if (!url || !url.trim()) {
       window.localStorage.removeItem(API_BASE_OVERRIDE_KEY);
@@ -56,9 +51,8 @@ export function setApiBaseOverride(url: string | null): boolean {
   }
 }
 
-/** Currently stored override, or null when using the default. */
 export function getApiBaseOverride(): string | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   try {
     return window.localStorage.getItem(API_BASE_OVERRIDE_KEY);
   } catch {
@@ -66,55 +60,68 @@ export function getApiBaseOverride(): string | null {
   }
 }
 
-/** Whether requests go anywhere other than the build default. */
-export function isCustomApiBase(): boolean {
-  return getApiBaseOverride() !== null;
-}
-
 function isLocalHost(urlOrHost: string): boolean {
-  return /(^|\.)localhost$|^127\.0\.0\.1$|^0\.0\.0\.0$|^\[::1\]$/.test(
-    (urlOrHost || "").toLowerCase().replace(/^https?:\/\//, "").split(/[/:]/)[0]
-  );
+  const rest = (urlOrHost || "").toLowerCase().replace(/^https?:\/\//, "");
+  const host = rest.startsWith("[") ? rest.slice(0, rest.indexOf("]") + 1) : rest.split(/[/:]/)[0];
+  return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1"
+    || host === "0.0.0.0" || host === "[::1]";
 }
 
 /**
- * Whether a backend call is even worth attempting. On a public deploy with
- * no custom server configured, the default localhost backend can never be
- * there — callers should go straight to browser search instead of burning
- * a doomed request (and logging a console error) first.
+ * Whether a backend call is worth attempting. On a public deploy with no
+ * custom server configured, the default localhost backend cannot exist,
+ * so skip the doomed request (and its console error) entirely.
  */
 export function shouldAttemptBackend(): boolean {
-  if (typeof window === "undefined") return true;
-  if (isCustomApiBase()) return true; // explicit user config: always honor
+  if (typeof window === "undefined") return false;
+  if (getApiBaseOverride()) return true;
   const base = getApiBase();
-  if (!isLocalHost(base)) return true; // baked remote host: try it
-  return isLocalHost(window.location.hostname); // local page: local backend may exist
+  if (!isLocalHost(base)) return true;
+  return isLocalHost(window.location.hostname);
 }
 
-/** Quick backend reachability probe for the Settings "Test" button. */
-export async function checkBackendHealth(timeoutMs = 5000): Promise<{ ok: boolean; detail: string }> {
-  const base = getApiBase();
-  // On a public deploy with no custom server configured, the default
-  // localhost backend can never be there — fail quietly instead of logging
-  // console errors on every page load. Explicit Test-button checks with a
-  // saved localhost override still probe (the visitor may run one).
-  if (typeof window !== "undefined" && !isCustomApiBase()
-      && isLocalHost(base) && !isLocalHost(window.location.hostname)) {
-    return { ok: false, detail: "No backend configured — static demo mode." };
+/** What a reachable backend can do (from GET /health). */
+export interface BackendInfo {
+  ok: boolean;
+  voice: boolean;
+  /** Hummed clips can be matched by melody (ACRCloud configured). */
+  melody: boolean;
+  spotify: boolean;
+  whisperModel: string | null;
+  detail: string;
+}
+
+const OFFLINE: BackendInfo = { ok: false, voice: false, melody: false, spotify: false, whisperModel: null, detail: "" };
+
+/** Probe GET /health. Never throws. */
+export async function checkBackendHealth(timeoutMs = 4000, force = false): Promise<BackendInfo> {
+  if (!force && !shouldAttemptBackend()) {
+    return { ...OFFLINE, detail: "No backend configured — searching in your browser." };
   }
+  const base = getApiBase();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(base + '/health', { signal: controller.signal });
-    if (!res.ok) return { ok: false, detail: 'Server responded with status ' + res.status };
-    const data = await res.json().catch(() => ({}));
-    const model = (data as { whisper_model?: string }).whisper_model;
-    return { ok: true, detail: model ? 'Connected (Whisper model: ' + model + ')' : 'Connected' };
+    const res = await fetch(base + "/health", { signal: controller.signal });
+    if (!res.ok) return { ...OFFLINE, detail: "Backend answered HTTP " + res.status + "." };
+    const data: any = await res.json().catch(() => ({}));
+    // Older backends did not report capabilities: assume voice when a
+    // Whisper model is named.
+    const voice = typeof data.voice === "boolean" ? data.voice : !!data.whisper_model;
+    const model = data.whisper_model || null;
+    return {
+      ok: true,
+      voice,
+      melody: !!data.melody,
+      spotify: !!data.spotify,
+      whisperModel: model,
+      detail: voice ? "Connected · Whisper " + (model || "ready") : "Connected · text search only (no Whisper)",
+    };
   } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      return { ok: false, detail: 'Timed out — is the backend running at ' + base + '?' };
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ...OFFLINE, detail: "Timed out reaching " + base + "." };
     }
-    return { ok: false, detail: 'Cannot reach ' + base + '. Check the URL and CORS settings.' };
+    return { ...OFFLINE, detail: "Cannot reach " + base + " (is it running? CORS allowed?)." };
   } finally {
     clearTimeout(timer);
   }
@@ -127,16 +134,15 @@ export interface LyricOccurrence {
   matched_line: string;
 }
 
-/** A same-song alternate version attached to a result (cover/live/remix). */
+/** A same-song alternate version (cover/live/remix). */
 export interface CoverInfo {
   artist: string;
   confidence?: number;
   timestamp_display?: string | null;
-  /** The lyric line this version matched (evidence it is the same song). */
   matched?: string;
 }
 
-/** Single song result from the backend */
+/** Raw song result as sent by the backend or the browser engine. */
 export interface SongResult {
   song: string;
   artist: string;
@@ -144,237 +150,121 @@ export interface SongResult {
   timestamp: number | null;
   timestamp_display: string | null;
   timestamp_estimated?: boolean;
-  lyrics_context?: {
-    before: string[];
-    matched: string;
-    after: string[];
-  } | null;
+  lyrics_context?: { before: string[]; matched: string; after: string[] } | null;
   occurrences?: LyricOccurrence[];
   ambiguous?: boolean;
   spotify_url: string;
   album_art?: string;
   strategy: string;
   sources?: string[];
-  /** Backend sends plain artist names; the browser engine sends rich details. */
+  /** Backend sends plain artist names; the browser engine sends details. */
   covers?: (string | CoverInfo)[];
 }
 
-/** API response from /upload or /identify */
+/** Response shape of POST /upload and POST /identify. */
 export interface ApiResponse {
   success: boolean;
   transcript: string;
   error?: string;
   results: SongResult[];
-  /** Backend confidence band: high = sure, uncertain = close call, low = weak. */
-  confidence_label?: 'high' | 'uncertain' | 'low';
-  /** Gap between top-1 and top-2 final confidence. */
+  confidence_label?: "high" | "uncertain" | "low";
   margin?: number;
-  // Backward-compat flat fields (top result)
-  song?: string;
-  artist?: string;
-  confidence?: number;
-  timestamp?: number | null;
-  spotify_url?: string;
+  /** What the backend matched on: typed lyrics, sung words, or melody. */
+  input?: "lyrics" | "voice" | "melody";
 }
 
-/** SSE progress event */
-export interface ProgressEvent {
-  stage: 'searching' | 'found' | 'lyrics' | 'matching' | 'spotify' | 'candidate_ready' | 'complete' | 'error';
-  message?: string;
-  candidates_count?: number;
-  candidates?: { song: string; artist: string }[];
-  result?: SongResult;
-  completed?: number;
-  total?: number;
-  results?: SongResult[];
-  transcript?: string;
-  success?: boolean;
+export class BackendError extends Error {
+  /** true when the server could not be reached at all (vs. answered with an error). */
+  unreachable: boolean;
+  status: number;
+  constructor(message: string, unreachable: boolean, status = 0) {
+    super(message);
+    this.name = "BackendError";
+    this.unreachable = unreachable;
+    this.status = status;
+  }
 }
 
-/**
- * Upload audio file for processing.
- */
-export async function uploadAudio(audioBlob: Blob, signal?: AbortSignal): Promise<ApiResponse> {
-  const formData = new FormData();
-  const mimeType = audioBlob.type || '';
-  const ext = (mimeType === 'audio/mp4' || mimeType === 'video/mp4') ? 'mp4'
-    : mimeType.startsWith('audio/ogg') ? 'ogg'
-    : 'webm';
-  formData.append('file', audioBlob, `recording.${ext}`);
-
-  const response = await axios.post<ApiResponse>(
-    `${getApiBase()}/upload`,
-    formData,
-    {
-      timeout: 60000, // 60s for Whisper processing
-      signal,
-    }
-  );
-
-  return response.data;
-}
-
-/**
- * Identify song from typed lyrics text (non-streaming fallback).
- */
-export async function identifyLyrics(lyrics: string, signal?: AbortSignal): Promise<ApiResponse> {
-  const response = await axios.post<ApiResponse>(
-    `${getApiBase()}/identify`,
-    { lyrics },
-    {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 60000,
-      signal,
-    }
-  );
-
-  return response.data;
-}
-
-/**
- * Identify song from typed lyrics via SSE streaming.
- * Calls onProgress for each stage update.
- */
-export async function identifyLyricsStream(
-  lyrics: string,
-  onProgress: (event: ProgressEvent) => void,
-  signal?: AbortSignal
-): Promise<ApiResponse | null> {
-  // Combine user signal with a 60s timeout to prevent hanging forever
-  // Use AbortSignal.any if available (Safari 17.4+), otherwise manual fallback
-  let combinedSignal: AbortSignal;
-  const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), 60000);
-  let abortHandler: (() => void) | null = null;
-
+function mergeSignals(signal: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; cleanup: () => void; timedOut: () => boolean } {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  const onAbort = () => controller.abort();
   if (signal) {
-    if (typeof AbortSignal.any === 'function') {
-      combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
-    } else {
-      // Fallback: propagate user abort to timeout controller
-      abortHandler = () => timeoutController.abort();
-      signal.addEventListener('abort', abortHandler);
-      combinedSignal = timeoutController.signal;
-    }
-  } else {
-    combinedSignal = timeoutController.signal;
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", onAbort, { once: true });
   }
+  return {
+    signal: controller.signal,
+    cleanup: () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); },
+    timedOut: () => timedOut,
+  };
+}
 
-  let readerRef: ReadableStreamDefaultReader<Uint8Array> | null = null;
-  let streamDone = false;
-
-  if (signal?.aborted) {
-    clearTimeout(timeoutId);
-    throw new DOMException('Aborted', 'AbortError');
-  }
-
+async function postJson(path: string, init: RequestInit, signal: AbortSignal | undefined, timeoutMs: number): Promise<ApiResponse> {
+  const merged = mergeSignals(signal, timeoutMs);
+  let res: Response;
   try {
-  const response = await fetch(`${getApiBase()}/identify/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lyrics }),
-    signal: combinedSignal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Server error: ${response.status}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('No response body');
-  readerRef = reader;
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let finalResult: ApiResponse | null = null;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) { streamDone = true; break; }
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        try {
-          const event: ProgressEvent = JSON.parse(line.slice(6));
-          onProgress(event);
-
-          if (event.stage === 'complete' && event.results) {
-            finalResult = {
-              success: true,
-              transcript: event.transcript || lyrics,
-              results: event.results,
-            };
-          } else if (event.stage === 'error' && !finalResult) {
-            // Server reported an error — propagate via onProgress but don't fail yet
-            // (other candidates may still succeed)
-          }
-        } catch (e) {
-          console.warn('SSE parse error:', e, line);
-        }
-      }
-    }
-  }
-
-  return finalResult;
+    res = await fetch(getApiBase() + path, { ...init, signal: merged.signal });
+  } catch (err) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (merged.timedOut()) throw new BackendError("The server took too long to answer.", false);
+    throw new BackendError("Cannot reach the backend at " + getApiBase() + ".", true);
   } finally {
-    clearTimeout(timeoutId);
-    if (!streamDone) readerRef?.cancel().catch(() => {});
-    if (abortHandler && signal) {
-      signal.removeEventListener('abort', abortHandler);
-    }
+    merged.cleanup();
+  }
+  const data: any = await res.json().catch(() => null);
+  if (!res.ok) {
+    const detail = (data && (data.detail || data.error)) || "Server error (HTTP " + res.status + ").";
+    throw new BackendError(String(detail), false, res.status);
+  }
+  if (!data || !Array.isArray(data.results)) throw new BackendError("Unexpected response from the backend.", false, res.status);
+  return data as ApiResponse;
+}
+
+/** Upload a voice clip for Whisper transcription + identification. */
+export function uploadAudio(audioBlob: Blob, signal?: AbortSignal): Promise<ApiResponse> {
+  const formData = new FormData();
+  const mime = audioBlob.type || "";
+  const ext = mime.includes("mp4") ? "mp4" : mime.includes("ogg") ? "ogg" : "webm";
+  formData.append("file", audioBlob, "recording." + ext);
+  // Whisper on CPU plus lyric verification can take a while on first run.
+  return postJson("/upload", { method: "POST", body: formData }, signal, 90000);
+}
+
+/** Identify a song from typed lyrics. */
+export function identifyLyrics(lyrics: string, signal?: AbortSignal): Promise<ApiResponse> {
+  return postJson("/identify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lyrics }),
+  }, signal, 50000);
+}
+
+/** Thumbs up/down on a result (backend only; fail-soft). */
+export async function submitFeedback(query: string, song: string, artist: string, action: "up" | "down"): Promise<boolean> {
+  try {
+    const res = await fetch(getApiBase() + "/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, song, artist, action }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
-/**
- * Extract Spotify track ID from URL.
- */
-export function extractSpotifyTrackId(url: string): string | null {
-  const match = url.match(/open\.spotify\.com\/track\/([a-zA-Z0-9]+)/);
+/** Spotify track id from an open.spotify.com track URL. */
+export function extractSpotifyTrackId(url: string | null | undefined): string | null {
+  const match = (url || "").match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?track\/([a-zA-Z0-9]{10,})/);
   return match ? match[1] : null;
 }
 
-/**
- * Format seconds to mm:ss display.
- */
-export function formatTimestamp(seconds: number): string {
-  if (!seconds || seconds < 0) return '0:00';
+/** Seconds to m:ss. */
+export function formatTimestamp(seconds: number | null | undefined): string {
+  if (seconds == null || !isFinite(seconds) || seconds < 0) return "0:00";
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-/**
- * Get confidence color class.
- */
-export function getConfidenceColor(confidence: number): string {
-  if (confidence >= 85) return 'text-green-400';
-  if (confidence >= 70) return 'text-yellow-400';
-  if (confidence >= 50) return 'text-orange-400';
-  return 'text-red-400';
-}
-
-/**
- * Get confidence ring color.
- */
-export function getConfidenceRingColor(confidence: number): string {
-  if (confidence >= 85) return '#1DB954';
-  if (confidence >= 70) return '#EAB308';
-  if (confidence >= 50) return '#F97316';
-  return '#EF4444';
-}
-
-/**
- * Submit feedback (thumbs up/down) for a result.
- */
-export async function submitFeedback(
-  query: string,
-  song: string,
-  artist: string,
-  action: 'up' | 'down'
-): Promise<void> {
-  await axios.post(`${getApiBase()}/feedback`, { query, song, artist, action });
+  return mins + ":" + secs.toString().padStart(2, "0");
 }
