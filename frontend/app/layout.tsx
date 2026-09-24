@@ -1,67 +1,43 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Bricolage_Grotesque, DM_Sans, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const display = Bricolage_Grotesque({ subsets: ["latin"], weight: ["500", "700"], variable: "--font-display", display: "swap" });
+const sans = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-sans", display: "swap" });
+const lyric = Instrument_Serif({ subsets: ["latin"], weight: "400", style: ["normal", "italic"], variable: "--font-lyric", display: "swap" });
+const mono = JetBrains_Mono({ subsets: ["latin"], weight: "500", variable: "--font-mono", display: "swap" });
+
+// Next applies basePath to page links but not to metadata icon/manifest
+// URLs, so prefix them explicitly (empty locally, "/lyricspot" on Pages).
+const base = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 export const metadata: Metadata = {
-  title: "ContinueMySong - Sing a lyric, find your song instantly",
+  title: "LyricSpot — sing a line, find the song",
   description:
-    "Sing or type any lyric to identify the song instantly and continue listening on Spotify. AI-powered music recognition with local processing.",
-  keywords: [
-    "music",
-    "Spotify",
-    "song identification",
-    "lyrics",
-    "singing",
-    "music recognition",
-    "AI",
-    "Whisper",
-  ],
+    "Sing or type the one lyric stuck in your head. LyricSpot finds the song and drops you at the exact second that line plays.",
+  keywords: ["lyrics", "song finder", "identify song by lyrics", "sing to search", "Spotify", "music"],
   authors: [{ name: "Shashwat Bajpai", url: "https://github.com/Shashwat1729" }],
-  creator: "Shashwat Bajpai",
-  // NOTE: absolute Pages subpath is intentional. Next.js does not apply
-  // basePath to metadata icon/manifest URLs, and relative URLs break on
-  // nested routes in the static export. Local dev serves /lyricspot/*
-  // identically (same Next server), so this works in both environments.
-  icons: {
-    icon: "/lyricspot/favicon.svg",
-  },
-  manifest: "/lyricspot/manifest.json",
+  icons: { icon: base + "/favicon.svg" },
+  manifest: base + "/manifest.json",
   openGraph: {
-    title: "ContinueMySong - Find Any Song by Singing",
-    description: "Sing a lyric and find the song instantly. Powered by local AI.",
+    title: "LyricSpot",
+    description: "Sing a line, find the song, keep listening from that exact second.",
     type: "website",
-    locale: "en_US",
-    siteName: "ContinueMySong",
+    siteName: "LyricSpot",
   },
-  twitter: {
-    card: "summary_large_image",
-    title: "ContinueMySong",
-    description: "Sing a lyric and find the song instantly.",
-  },
-  robots: {
-    index: true,
-    follow: true,
-  },
+  twitter: { card: "summary", title: "LyricSpot", description: "Sing a line, find the song." },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1DB954",
+  themeColor: "#0E0F0C",
   width: "device-width",
   initialScale: 1,
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className={inter.className + " bg-dark-900 text-white antialiased"}>
-        {children}
-      </body>
+    <html lang="en" className={[display.variable, sans.variable, lyric.variable, mono.variable].join(" ")}>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }

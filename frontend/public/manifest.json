@@ -1,20 +1,13 @@
 {
-  "name": "ContinueMySong AI",
-  "short_name": "ContinueMySong",
-  "theme_color": "#1DB954",
-  "background_color": "#000000",
+  "name": "LyricSpot — sing a line, find the song",
+  "short_name": "LyricSpot",
+  "description": "Sing or type a lyric to find the song and the exact second it plays.",
+  "theme_color": "#0E0F0C",
+  "background_color": "#0E0F0C",
   "display": "standalone",
-  "start_url": "/lyricspot/",
+  "start_url": "./",
+  "scope": "./",
   "icons": [
-    {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%23000' width='192' height='192'/%3E%3Cpath fill='%231DB954' d='M120 36v76.6a24 24 0 1 1-12-20.8V66.4l-40 8v51.2a24 24 0 1 1-12-20.8V58z'/%3E%3C/svg%3E",
-      "sizes": "192x192",
-      "type": "image/svg+xml"
-    },
-    {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect fill='%23000' width='512' height='512'/%3E%3Cpath fill='%231DB954' d='M320 96v204.267c-23.468-13.549-53.889-16.509-82.286-5.118-44.183 17.726-68.32 60.57-53.913 95.684 14.407 35.113 61.901 49.201 106.084 31.475C327.241 407.32 352 372.214 352 336V177.067l-96 19.2V332.8c-23.468-13.549-53.889-16.509-82.286-5.118-44.183 17.726-68.32 60.57-53.913 95.684 14.407 35.113 61.901 49.201 106.084 31.475C263.241 439.853 288 404.747 288 368V154.667z'/%3E%3C/svg%3E",
-      "sizes": "512x512",
-      "type": "image/svg+xml"
-    }
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

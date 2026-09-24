@@ -123,6 +123,18 @@ async function main() {
     if (!ok) process.exitCode = 1;
   }
   eq(lib.romanizeDevanagari(D.hum2), 'ham', 'romanize ham');
+  {
+    // A stitched pair that merely ties its own line must not move the
+    // timestamp to the preceding line (Adele "Hello": 1:19, not 0:15).
+    const L = [
+      { t: 15, text: "I was wondering if after all these years you'd like to meet" },
+      { t: 79, text: 'Hello from the other side' },
+      { t: 84, text: "I must've called a thousand times" },
+    ];
+    eq(lib.bestLine('hello from the other side', L).idx, 1, 'bestLine pair tie keeps exact line');
+    const span = [{ t: 1, text: 'take a sad song' }, { t: 5, text: 'and make it better' }];
+    eq(lib.bestLine('sad song and make it', span).idx >= 0, true, 'bestLine cross-line pair still matches');
+  }
   eq(lib.romanizeDevanagari(D.sapne), 'sapne', 'romanize sapne');
   eq(lib.romanizeDevanagari(D.din), 'din', 'romanize din');
   eq(lib.romanizeDevanagari(D.baithe), 'baithe', 'romanize baithe');

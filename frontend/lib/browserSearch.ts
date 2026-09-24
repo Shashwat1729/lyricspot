@@ -1,8 +1,8 @@
 ﻿"use client";
 
 // Browser-native identification: LRCLIB (lyrics) + iTunes (metadata/artwork).
-// All calls are direct fetches — no backend required. Spotify URL is a
-// search fallback (no Spotify API key needed in the browser).
+// All calls are direct fetches — no backend required. The Spotify URL here
+// is a search fallback; lib/links.ts resolves the exact track afterwards.
 //
 // Visitor-owned FREE API keys (Settings → API keys, stored in their own
 // browser only) upgrade the engine where available: a Musixmatch key adds
@@ -886,23 +886,37 @@ function tokenScore(a: string, b: string, soft = false): number {
 }
 
 function bestLine(transcript: string, lines: { t: number; text: string }[]): { idx: number; score: number } | null {
-  let best: { idx: number; score: number } | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    const s = tokenScore(transcript, lines[i].text);
-    if (!best || s > best.score) best = { idx: i, score: s };
-    // also try adjacent line pairs for stitched phrases
-    if (i + 1 < lines.length) {
-      const pair = lines[i].text + " " + lines[i + 1].text;
-      const ps = tokenScore(transcript, pair);
-      if (ps > (best?.score ?? 0)) best = { idx: i, score: ps };
+  if (!lines.length) return null;
+  const singles = lines.map((l) => tokenScore(transcript, l.text));
+  let best: { idx: number; score: number } = { idx: 0, score: singles[0] };
+  for (let i = 1; i < lines.length; i++) {
+    if (singles[i] > best.score) best = { idx: i, score: singles[i] };
+  }
+  // Stitched adjacent pairs catch a query that spans a line break. A pair
+  // only wins when it beats BOTH of its lines; it then points at whichever
+  // line carries more of the query, so a tie never drags the timestamp to
+  // the preceding line.
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const ps = tokenScore(transcript, lines[i].text + " " + lines[i + 1].text);
+    if (ps > best.score && ps > singles[i] && ps > singles[i + 1]) {
+      best = { idx: singles[i + 1] > singles[i] ? i + 1 : i, score: ps };
     }
   }
   return best;
 }
 
-export async function browserIdentify(transcript: string, onProgress?: (stage: string, msg: string) => void): Promise<{ transcript: string; results: BrowserCandidate[] }> {
+export async function browserIdentify(
+  transcript: string,
+  onProgress?: (stage: string, msg: string) => void,
+  signal?: AbortSignal
+): Promise<{ transcript: string; results: BrowserCandidate[] }> {
   const clean = transcript.trim();
   if (!clean) throw new Error("Empty transcript");
+  // Cooperative cancellation between network phases (each fetch has its
+  // own timeout; a cancelled search simply stops issuing new phases).
+  const checkAborted = () => {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  };
 
   // Stage ids must match LoadingOverlay's known stages so the progress
   // UI advances instead of stalling on unknown ids.
@@ -948,6 +962,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     webSearchCandidates(clean),
     geminiQueryVariants(clean),
   ]);
+  checkAborted();
   // Fan out LRCLIB + iTunes in parallel (fail-soft each). iTunes is
   // title-based and often finds the famous original when LRCLIB returns
   // only covers for the same lyric phrase.
@@ -1010,6 +1025,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       }
     })),
   ]);
+  checkAborted();
   // Resolve Genius (title, artist) pairs to LRCLIB lyric entries (fail-soft
   // each). These are lyric-motivated candidates, so they join the pool first.
   onProgress?.("searching", "Checking lyric matches...");
@@ -1072,6 +1088,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       }
     } catch { /* ignore */ }
   }
+  checkAborted();
   if (!data.length) throw new Error("No matching songs found. Try different lyrics.");
 
   onProgress?.("lyrics", "Matching lyrics...");
@@ -1155,6 +1172,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
       if (added) scorePool();
     }
   }
+  checkAborted();
   // Title fallback: some tracks (e.g. "Smells Like Teen Spirit") never
   // repeat the title in the synced lyrics, so lyric-only scoring can miss
   // them even though LRCLIB found them by title.
@@ -1212,6 +1230,7 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   // below title-coincidences in provider order. 15 keeps recall for
   // Top-5 + Load More while bounded for perf.
   const ranked = await rerankByPopularity(clean, scored.sort((a, b) => b.score - a.score).slice(0, 15));
+  checkAborted();
   // Cover grouping: same song (version-stripped title OR near-identical
   // best lyric + shared title word) counts as one song. Ranked order puts
   // the strongest version first, so it becomes the group head; the rest
@@ -1319,10 +1338,14 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
     const bareArts = await Promise.all(
       geniusBare.map(p => fetchArtwork(p.title, cleanArtist(p.artist)))
     );
+    // Unverified guesses always rank (and read) below every line-verified
+    // result, so their confidence sits under the weakest verified one.
+    const minVerified = results.length ? Math.min(...results.map(r => r.confidence)) : 50;
+    const bareConfidence = Math.max(10, Math.min(45, minVerified - 5));
     const bareCards: BrowserCandidate[] = geniusBare.map((p, k) => ({
       song: p.title || "Unknown",
       artist: cleanArtist(p.artist || ""),
-      confidence: 50,
+      confidence: bareConfidence,
       timestamp: null,
       timestamp_display: null,
       timestamp_estimated: false,
@@ -1343,43 +1366,4 @@ export async function browserIdentify(transcript: string, onProgress?: (stage: s
   }
 
   return { transcript: clean, results };
-}
-
-export function isSpeechRecognitionAvailable(): boolean {
-  return typeof window !== "undefined" && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
-}
-
-export function startSpeechRecognition(
-  onResult: (transcript: string) => void,
-  onError: (msg: string) => void,
-  lang = "en-US"
-): (() => void) | null {
-  const Ctor: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-  if (!Ctor) { onError("Speech recognition not supported in this browser. Try Chrome."); return null; }
-  const rec = new Ctor();
-  rec.continuous = false;
-  rec.interimResults = false;
-  rec.lang = lang;
-  rec.onresult = (e: any) => {
-    const t = e.results?.[0]?.[0]?.transcript;
-    if (t) onResult(t);
-    else onError("Did not catch that. Try again, speaking clearly.");
-  };
-  rec.onerror = (e: any) => {
-    const code = e.error || "unknown";
-    // Surface the specific code — "Browser voice failed" with no detail
-    // is unactionable. Known codes: not-allowed, no-speech, network,
-    // service-not-allowed, audio-capture, aborted.
-    if (code === "not-allowed" || code === "service-not-allowed") {
-      onError("Microphone permission denied for voice recognition (" + code + "). Check the browser site settings.");
-    } else if (code === "no-speech") {
-      onError("No speech detected (no-speech). Sing or say the lyric clearly, closer to the mic.");
-    } else if (code === "aborted") {
-      onError("Voice recognition stopped. Try again.");
-    } else {
-      onError("Voice recognition failed (" + code + "). Try the Lyrics tab instead.");
-    }
-  };
-  rec.start();
-  return () => { try { rec.stop(); } catch {} };
 }
