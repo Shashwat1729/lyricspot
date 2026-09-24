@@ -1,11 +1,15 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, DM_Sans, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+// Fonts are bundled from npm (@fontsource) rather than next/font/google so
+// builds never depend on reaching Google Fonts (CI, Docker, offline).
+import "@fontsource/bricolage-grotesque/latin-500.css";
+import "@fontsource/bricolage-grotesque/latin-700.css";
+import "@fontsource/dm-sans/latin-400.css";
+import "@fontsource/dm-sans/latin-500.css";
+import "@fontsource/dm-sans/latin-600.css";
+import "@fontsource/instrument-serif/latin-400.css";
+import "@fontsource/instrument-serif/latin-400-italic.css";
+import "@fontsource/jetbrains-mono/latin-500.css";
 import "./globals.css";
-
-const display = Bricolage_Grotesque({ subsets: ["latin"], weight: ["500", "700"], variable: "--font-display", display: "swap" });
-const sans = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-sans", display: "swap" });
-const lyric = Instrument_Serif({ subsets: ["latin"], weight: "400", style: ["normal", "italic"], variable: "--font-lyric", display: "swap" });
-const mono = JetBrains_Mono({ subsets: ["latin"], weight: "500", variable: "--font-mono", display: "swap" });
 
 // Next applies basePath to page links but not to metadata icon/manifest
 // URLs, so prefix them explicitly (empty locally, "/lyricspot" on Pages).
@@ -36,7 +40,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={[display.variable, sans.variable, lyric.variable, mono.variable].join(" ")}>
+    <html lang="en">
       <body className="font-sans antialiased">{children}</body>
     </html>
   );

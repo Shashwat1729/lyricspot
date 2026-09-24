@@ -4,6 +4,10 @@
 
 :root {
   color-scheme: dark;
+  --font-display: "Bricolage Grotesque";
+  --font-sans: "DM Sans";
+  --font-lyric: "Instrument Serif";
+  --font-mono: "JetBrains Mono";
 }
 
 html {
