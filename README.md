@@ -1,147 +1,128 @@
-# [Music] LyricSpot
+# LyricSpot
 
-**Sing a lyric. We'll find the song. Keep listening right where you left off.**
+**Sing the line stuck in your head. Find the song. Keep listening from that exact second.**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-1DB954?logo=github)](https://shashwat1729.github.io/lyricspot/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-1ED760?logo=github)](https://shashwat1729.github.io/lyricspot/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
----
-
-## What is this?
-
-Ever had a song stuck in your head but only remember one line? LyricSpot listens to you sing (or reads what you type), identifies the song using local AI, finds the exact second your lyric appears, and opens Spotify right at that timestamp.
-
-**No cloud, no tracking, no paid APIs.** With a backend running, everything stays on your machine. On GitHub Pages the Lyrics tab works directly in your browser (Genius lyric discovery + LRCLIB + iTunes) — still no keys, no tracking.
-
-## Features
-
-- **Voice Input** - Sing into your mic (3s min, 5-10s recommended, 15s max) — uses Whisper when a backend is connected, falls back to in-browser speech recognition on Pages
-- **Text Input** - Type whatever lyrics you remember — live lyric search with browser fallback
-- **Local AI** - OpenAI Whisper when a backend is running; browser Speech API as fallback on Pages
-- **Multi-Source Search** - YouTube + Genius + iTunes + Musixmatch + Deezer + MusicBrainz (backend); Genius + Musixmatch + Google + LRCLIB + lyrics.ovh + iTunes (browser, keys optional)
-- **Popularity-Aware Ranking** - Famous originals outrank obscure covers with identical lyrics
-- **Precise Timestamps** - Finds the exact second your lyric appears (including repeated choruses)
-- **Spotify Deep Link** - One click opens Spotify at the right timestamp
-- **Multilingual input** - English, Hindi, Korean, Spanish, French, Portuguese, Japanese; accuracy is highest for English and varies by language and singing style
-
-## Quick Start
-
-### Prerequisites
-- Node.js 18+, Python 3.9+, ffmpeg
-
-### One command (Linux/WSL)
-```bash
-chmod +x start.sh && ./start.sh
-```
-
-### Manual
-
-**Backend:**
-```bash
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm install && npm run dev
-```
-
-Open **http://localhost:3000**
-
-## Environment Variables
-
-Copy backend/.env.example to backend/.env:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| SPOTIFY_CLIENT_ID | Recommended | - | Spotify API client ID |
-| SPOTIFY_CLIENT_SECRET | Recommended | - | Spotify API client secret |
-| WHISPER_MODEL | No | base | Model size: tiny, base, small, medium |
-| CORS_ORIGINS | No | - | Comma-separated allowed origins |
-| TRANSCRIPTION_MIN_CONFIDENCE | No | 0.35 | Below this, the backend asks for a longer clip instead of searching |
-| CONFIDENCE_HIGH_THRESHOLD | No | 70 | Absolute score needed for a "high" confidence result |
-| CONFIDENCE_HIGH_MARGIN | No | 10 | Top-1/top-2 gap needed for a "high" confidence result |
-
-## How the two deployments relate
-
-**Local (full power):** Backend does Whisper + parallel search + lyric verification. Most accurate, private, supports all languages.
-
-**GitHub Pages (zero setup):** Static build at [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/) — no server needed.
-
-- **Lyrics tab** searches Genius (lyric discovery) + LRCLIB (lyrics) + iTunes (metadata/artwork) directly from your browser, finds real songs with timestamps and artwork. No keys needed.
-- **Voice tab** tries the backend first; if unreachable, falls back to in-browser speech recognition piped into the same search.
-
-## API keys (all free, all optional)
-
-The static site works with zero keys. To improve it, open **API keys** (top right) and paste any of these — they are stored only in your browser, never uploaded:
-
-| Key | What it unlocks | Where to get it (free) |
-|-----|-----------------|------------------------|
-| Musixmatch | Genuine lyrics → song search (same provider the backend uses) | developer.musixmatch.com (free tier: 2000 calls/day) |
-| Genius token | Upgrades lyric discovery to the official API | genius.com/api-clients → Generate Access Token |
-| Google key + CX | Web-scale lyric search for songs Genius misses (100 free/day; needs BOTH the API key and an "entire web" engine's CX) | console.cloud.google.com (Custom Search API) + programmablesearchengine.google.com |
-| Google AI key | Understands misspelled/romanized queries into searchable variants (never names songs) | aistudio.google.com/apikey (free tier) |
-| Spotify ID + Secret | Popularity ranking (famous originals outrank covers) + artwork | developer.spotify.com/dashboard |
-
-Each row has a **Test** button so you can verify a key before saving. No paid APIs are used anywhere in this project.
-
-If you run your own backend elsewhere, set it under **API keys → Advanced** (top right). That URL is saved on your device and takes precedence. Or host `backend/` once (HuggingFace Spaces / Render / Railway — Dockerfile already handles `PORT`, just set `CORS_ORIGINS=https://shashwat1729.github.io`) and bake it in with `NEXT_PUBLIC_API_URL=https://your-host npm run build`.
-
-
-## Architecture — how a lyric becomes a ranked result
-
-```
-Input (voice or typed)
-  → Retrieval (broad, never early-stop)
-      Backend: YouTube + Genius (+token) + iTunes + Musixmatch + Deezer + MusicBrainz in parallel, merged by provider agreement
-      Browser: Genius lyric discovery (+token via access_token=) + Musixmatch q_lyrics + Google web search (+key/cx) + LRCLIB q + iTunes + lyrics.ovh suggest, deduped, pool ≤40
-  → Lyric enrichment
-      LRCLIB structured search → lyrics.ovh plain-text fallback; synced LRC parsed, plain split, boilerplate stripped
-      Deep resolve when <5 scored: pull lyrics for metadata-only pool and re-score
-  → Scoring
-      Best line per song via tokenScore (BM25-style, length-normed, containment-gated) + pair stitching; cross-script via Devanagari romanization + relaxed vowels
-  → Ranking (deterministic, testable)
-      Frontend: 0.65 lyric / 0.25 popularity / 0.10 title with 5 dynamic rules (exact hook, short/long query, flat popularity, lyric-tie cluster); popularity is Spotify when keys exist else iTunes proxy (source-tagged)
-      Backend: 0.50 lyric / 0.20 coverage / 0.10 locality / 0.10 title / 0.05 popularity / 0.05 provider agreement + bounded lyric-tie pop nudge + constraint floors/ceilings
-      Confidence ≠ rank: #1 can still be "uncertain" when absolute evidence or margin is weak
-  → Pagination
-      12 distinct songs max (deduped + cover-grouped: version suffixes stripped, lyric-family clustering), Top 5 → Load 3 → Load 3… (5/8/11), stable order, no duplicates, no re-search, honest empty/end states
-```
-
-No song, language, or query is hardcoded. Every case in `backend/tests/eval_dataset.json` (31 cases with hard negatives) is a regression harness, not production logic.
-
-## Honest limits (read before judging a result)
-
-- **Genuine ambiguity is reported, not hidden.** When the query words ARE one song's title AND another song's lyric (e.g. a Noha quoting a film hook), both are legitimate #1s — the system ranks them neck-and-neck with a "Close call" banner instead of fabricating certainty. Singing a longer line resolves it.
-- **Static demo ceiling.** The GitHub Pages build can only use CORS-open free APIs (LRCLIB, iTunes, lyrics.ovh, Genius + Spotify with your keys). Anything CORS-blocked (Musixmatch, Genius header-auth, search engines except Google CSE with your key) needs the backend. Missing provider lyrics surface as low-confidence cards, never invented context.
-- **Metrics honesty.** Unit suites assert scoring math on synthetic pools; they cannot prove live accuracy. Live Playwright proofs (Hey Jude lyric, Hindi cross-script) are the real bar and are re-run after ranking changes.
-
-## Evaluation
-
-`pytest backend/tests/test_comprehensive_eval.py` measures Top-1/Top-3/Top-5, MRR/Recall@5 on the dataset; `pytest backend/tests/test_ranking.py` asserts lyric-content-first ordering (e.g. Hey Jude lyric vs title trap) remains green. Frontend has a 57-assertion harness (`frontend/verify-browsersearch.cjs`, run with `node frontend/verify-browsersearch.cjs`) covering romanization, scoring, spelling variants, version stripping, cover grouping, web-result parsing, and model-output parsing.
-
-## Screenshots
-
-Live capture from the GitHub Pages site — real browser search via LRCLIB + iTunes, zero backend.
-
-| Voice Mode | Lyrics Mode | Lyrics Result |
+| Home | Result | Listening (phone) |
 |:---:|:---:|:---:|
-| ![Voice](docs/screenshots/homepage.png) | ![Lyrics](docs/screenshots/lyrics-input.png) | ![Results](docs/screenshots/results.png) |
+| ![Home](docs/screenshots/home.png) | ![Result](docs/screenshots/results.png) | ![Listening](docs/screenshots/listening-mobile.png) |
 
-<details>
-<summary>API keys settings (click to expand)</summary>
-<br>
+## What it does
 
-![API keys settings](docs/screenshots/settings.png)
+1. **Sing the words or type them.** Voice is transcribed live in your browser, or by Whisper when you run the backend.
+2. **We find the song.** Lyric databases are searched in parallel and every candidate is *verified against its real lyrics*, not just its title.
+3. **We find the second.** Synced lyrics give the timestamp of your line. The result shows the lines around it, a Spotify player cued to it, and links to Spotify, YouTube and Apple Music.
 
-*Key icon top-right — paste free Musixmatch / Genius / Spotify keys and test each one. Lyrics tab works immediately without any key; voice falls back to in-browser speech recognition.*
-</details>
+It works with **zero setup** on the live site. No account, no keys, nothing you sing is stored.
 
-## Demo
+### Humming
 
-- **Live site:** [shashwat1729.github.io/lyricspot/](https://shashwat1729.github.io/lyricspot/) — Lyrics tab works with zero setup; voice needs a backend or Chrome's built-in speech recognition.
-- **Interactive walkthrough:** [shashwat1729.github.io/lyricspot/demo/](https://shashwat1729.github.io/lyricspot/demo/) — 6-step slideshow generated from the live build.
+Lyric search needs words, and humming has none. So:
+- In the browser, a clip with no words gets a clear "sing the words or type them" message, never a wrong search.
+- With the backend and free [ACRCloud](https://www.acrcloud.com/) credentials, hummed clips are **matched by melody** (query-by-humming). The backend also falls back to melody matching when a sung clip's words find nothing.
+
+## Two ways to run it
+
+| | Static site (GitHub Pages) | With the backend |
+|---|---|---|
+| Setup | none | `./start.sh` |
+| Voice | Browser speech recognition (Chrome, Edge, Safari) | Whisper (any browser), plus humming with ACRCloud |
+| Sources | LRCLIB, Genius, iTunes, lyrics.ovh (Deezer), plus your optional free keys | YouTube, Genius, iTunes, Musixmatch, Deezer, MusicBrainz, LRCLIB |
+| Spotify track | iTunes → song.link (keyless) or your Spotify keys | Spotify API (server keys), else resolved in the browser |
+
+The frontend checks `GET /health` on load: if a backend answers, it's used (and its capabilities decide the voice path); if not, or if it fails mid-search, the browser engine takes over and the result says so.
+
+## Quick start
+
+```bash
+./start.sh           # full install: text + voice (needs ffmpeg; installs CPU torch + Whisper)
+./start.sh --text    # text search only: small install, no torch
+```
+
+Then open http://localhost:3000. Backend health: http://localhost:8000/health.
+
+Manual:
+
+```bash
+# backend
+cd backend && python -m venv venv && source venv/bin/activate
+pip install -r requirements-core.txt      # or requirements.txt for voice
+cp .env.example .env                      # optional keys
+uvicorn main:app --port 8000
+
+# frontend
+cd frontend && npm install && npm run dev
+```
+
+Docker: `docker compose up --build` (backend with Whisper + frontend on :3000).
+
+## Optional keys
+
+**Browser (live site):** open the sliders icon (top right) → *Search sources*. Keys are stored only in your browser and sent only to their provider. Each has *Save and test*.
+
+| Key | Adds |
+|---|---|
+| Spotify client ID + secret | Exact Spotify tracks for the player, popularity ranking |
+| Genius token | Official lyric search |
+| Musixmatch | Lyrics-to-song index |
+| Google API key + search engine ID | Web-wide lyric pages (100 free/day) |
+| Gemini | Fixes misspelled/romanized lines before searching |
+
+**Backend:** see [`backend/.env.example`](backend/.env.example): Spotify, Musixmatch, Genius, ACRCloud (humming), Whisper model, CORS.
+
+To use your own backend from the live site, enter its URL under *Search sources → Backend URL* and add `https://shashwat1729.github.io` to `CORS_ORIGINS` (it's in the default list).
+
+## Architecture
+
+```
+frontend/ (Next.js static export)
+  components/App.tsx        state machine: compose → searching → results | error; ?q= deep links + back button
+  lib/engine.ts             one search API for the UI; backend first, browser fallback; normalized results
+  lib/browserSearch.ts      in-browser engine: retrieval → lyric verification → ranking → cover grouping
+  lib/links.ts              exact Spotify track (backend / Spotify keys / iTunes→song.link), YouTube, Apple Music
+  lib/speech.ts             live speech recognition + MediaRecorder with level meter
+  lib/api.ts                backend client + capability probe
+
+backend/ (FastAPI)
+  main.py                   HTTP layer only: validation, rate limits, CORS, capability report
+  config.py                 every setting, read once from env
+  services/pipeline.py      transcript → candidates → lyric evidence → ranking → response (shared by all endpoints)
+  services/song_identifier  multi-provider candidate retrieval
+  services/lyrics_fetcher   synced/plain lyrics; timestamp_matcher finds the line
+  services/candidate_ranker lyric-content-first scoring + confidence bands
+  services/melody_recognizer ACRCloud query-by-humming (optional)
+  services/transcriber      Whisper, lazily loaded (the API runs without it)
+```
+
+Ranking is lyric-first in both engines: a candidate's score comes from how well your words match its actual lyric lines, then popularity and title act as tie-breakers so famous originals beat karaoke copies. Confidence is shown honestly: a "Close call" or "Low confidence" banner when the top result isn't clearly ahead.
+
+## Tests
+
+```bash
+cd backend && pytest tests/                 # 120+ tests: ranking, pipeline, melody, API
+cd frontend && npm run test:unit            # scoring harness on the shipped browser engine
+cd frontend && npm run build && npm run test:e2e   # Playwright: typed search, live voice, humming, recording upload, backend mode
+```
+
+End-to-end tests mock every third-party API, so they're deterministic and run offline. CI runs all of the above on every push and PR.
+
+## Deploying the static site
+
+```bash
+cd frontend && npm run build:pages   # builds with base path /lyricspot and copies the export into docs/
+```
+
+GitHub Pages serves `docs/` from `main`. `E2E_PAGES=1 npm run test:e2e` runs the end-to-end suite against that exact bundle under `/lyricspot/`.
+
+## Honest limits
+
+- The live site can only use APIs that allow browser (CORS) access. Musixmatch and some search engines need the backend.
+- Browser speech recognition is built for speech, not singing: clear, word-by-word singing works best. The backend's Whisper is more robust.
+- Spotify's embedded player only plays full tracks for logged-in listeners; others get a 30-second preview.
+- Timestamps come from synced lyrics. When only plain lyrics exist, the time is estimated and marked with `~`.
+
+## License
+
+MIT
