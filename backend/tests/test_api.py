@@ -70,6 +70,26 @@ class TestUploadEndpoint:
         assert len(data["results"]) >= 1
 
 
+class TestCapabilities:
+    def test_health_reports_capabilities(self, client):
+        data = client.get("/health").json()
+        assert isinstance(data["voice"], bool)
+        assert isinstance(data["spotify"], bool)
+        assert data["version"]
+
+    def test_upload_returns_503_when_voice_disabled(self, client):
+        with patch("main._voice_enabled", return_value=False):
+            r = client.post("/upload", files={"file": ("a.webm", b"fake_audio", "audio/webm")})
+        assert r.status_code == 503
+        assert "Type the lyric" in r.json()["detail"]
+
+    def test_empty_upload_still_400_when_voice_disabled(self, client):
+        # Input validation runs before the capability check.
+        with patch("main._voice_enabled", return_value=False):
+            r = client.post("/upload", files={"file": ("a.webm", b"", "audio/webm")})
+        assert r.status_code == 400
+
+
 class TestIdentifyEndpoint:
     @pytest.mark.skip(reason="Mocks don't propagate into thread-pool executor; tested via e2e")
     @patch("main.song_identifier")
@@ -149,21 +169,22 @@ class TestPreferOriginalArtist:
 
     def test_no_crash_on_ranking_score_dicts(self):
         """Regression: enriched candidates carry ranking_score, not confidence."""
-        main = _import_main()
+        _import_main()
         results = [
             {"song": "Imagine", "artist": "John Lennon", "ranking_score": 88,
              "search_confidence": 70, "spotify_url": "https://open.spotify.com/track/abc"},
             {"song": "Imagine", "artist": "Karaoke Hits", "ranking_score": 86,
              "search_confidence": 65, "spotify_url": "https://open.spotify.com/search/x"},
         ]
-        reordered = main._prefer_original_artist(results)
+        from services.pipeline import prefer_original_artist
+        reordered = prefer_original_artist(results)
         assert len(reordered) == 2
         # Original (direct track URL + known artist) wins the tie
         assert reordered[0]["artist"] == "John Lennon"
 
     def test_global_order_preserved_across_titles(self):
         """A same-title group must not jump ahead of higher-ranked other titles."""
-        main = _import_main()
+        _import_main()
         results = [
             {"song": "Hey Jude", "artist": "The Beatles", "ranking_score": 92,
              "search_confidence": 60, "spotify_url": "https://open.spotify.com/track/a"},
@@ -172,7 +193,8 @@ class TestPreferOriginalArtist:
             {"song": "Hey Jude", "artist": "Cover Band", "ranking_score": 90,
              "search_confidence": 58, "spotify_url": "https://open.spotify.com/search/c"},
         ]
-        reordered = main._prefer_original_artist(results)
+        from services.pipeline import prefer_original_artist
+        reordered = prefer_original_artist(results)
         songs = [r["song"] for r in reordered]
         # Positions 0 and 2 hold the Hey Jude versions (swapped in place);
         # Sad Song stays at position 1 — never leapfrogged.
@@ -181,14 +203,15 @@ class TestPreferOriginalArtist:
 
     def test_clear_lyric_gap_not_reordered(self):
         """When lyric evidence clearly separates versions, keep ranker order."""
-        main = _import_main()
+        _import_main()
         results = [
             {"song": "Imagine", "artist": "Cover Band", "ranking_score": 90,
              "search_confidence": 60, "spotify_url": "https://open.spotify.com/track/x"},
             {"song": "Imagine", "artist": "John Lennon", "ranking_score": 70,
              "search_confidence": 70, "spotify_url": "https://open.spotify.com/track/y"},
         ]
-        reordered = main._prefer_original_artist(results)
+        from services.pipeline import prefer_original_artist
+        reordered = prefer_original_artist(results)
         # 20-point gap: lyric evidence wins, no swap despite popularity signals
         assert reordered[0]["artist"] == "Cover Band"
 

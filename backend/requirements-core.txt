@@ -1,0 +1,13 @@
+# LyricSpot backend — core (text search) dependencies.
+# Enough to run `uvicorn main:app` with typed-lyric search.
+# Voice input additionally needs requirements.txt (Whisper) + ffmpeg.
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+requests>=2.31.0
+beautifulsoup4==4.12.2
+lxml>=4.9.0
+rapidfuzz==3.5.2
+python-dotenv==1.0.0
+slowapi==0.1.9
+yt-dlp>=2024.1.0

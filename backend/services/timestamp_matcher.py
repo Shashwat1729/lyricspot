@@ -1,5 +1,5 @@
 """
-Timestamp matching service for ContinueMySong AI.
+Timestamp matching service for LyricSpot.
 Uses RapidFuzz to align transcribed lyrics against synced lyric lines.
 """
 

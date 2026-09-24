@@ -1,16 +1,22 @@
 """
-Audio processing service for ContinueMySong AI.
+Audio processing service for LyricSpot.
 Handles conversion (webm → wav) and normalization using ffmpeg and librosa.
 """
 
+import logging
+import shutil
 import subprocess
-import numpy as np
-import librosa
-import soundfile as sf
+
+logger = logging.getLogger(__name__)
 
 
 class AudioProcessor:
     """Handles audio format conversion and normalization."""
+
+    @staticmethod
+    def ffmpeg_available() -> bool:
+        """True when the ffmpeg binary is on PATH (required for voice input)."""
+        return shutil.which("ffmpeg") is not None
 
     @staticmethod
     def _validate_path(path: str) -> None:
@@ -59,6 +65,17 @@ class AudioProcessor:
         Args:
             wav_path: Path to WAV file (modified in place)
         """
+        # Optional dependency: without librosa/soundfile the (already 16kHz
+        # mono) WAV is transcribed as-is — Whisper still works, just with
+        # slightly lower accuracy on very quiet recordings.
+        try:
+            import numpy as np
+            import librosa
+            import soundfile as sf
+        except ImportError:
+            logger.info("librosa/soundfile not installed — skipping normalization")
+            return
+
         # Load audio
         audio, sr = librosa.load(wav_path, sr=16000, mono=True)
 

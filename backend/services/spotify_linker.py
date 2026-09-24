@@ -1,5 +1,5 @@
 """
-Spotify URL generation service for ContinueMySong AI.
+Spotify URL generation service for LyricSpot.
 Uses Spotify Web API (client_credentials flow) for real track IDs.
 Falls back to search URLs when API credentials aren't configured.
 """

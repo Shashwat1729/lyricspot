@@ -1,22 +1,10 @@
-﻿# ContinueMySong AI Backend Dependencies
+# LyricSpot backend — full install (text search + voice input).
 # NOTE: ffmpeg must be installed separately (system dependency for audio conversion)
-# Ubuntu/Debian: sudo apt install ffmpeg
-# macOS: brew install ffmpeg
-# Windows: Download from https://ffmpeg.org/download.html
-
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+#   Ubuntu/Debian: sudo apt install ffmpeg · macOS: brew install ffmpeg
+# Install torch CPU-only first for a smaller footprint:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+-r requirements-core.txt
 openai-whisper==20231117
-# Install torch CPU-only for smaller footprint:
-# pip install torch --index-url https://download.pytorch.org/whl/cpu
 librosa==0.10.1
 soundfile==0.12.1
 numpy>=1.21.0,<2.0.0
-requests==2.31.0
-beautifulsoup4==4.12.2
-lxml>=4.9.0
-rapidfuzz==3.5.2
-python-dotenv==1.0.0
-slowapi==0.1.9
-yt-dlp>=2024.1.0
